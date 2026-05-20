@@ -10,7 +10,7 @@ Runs .air test cases, captures named steps from run_step(), and exports:
 Non-invasive: does not write to the project's Test/ or pixon/ directories.
 """
 
-import argparse
+import glob as _glob
 import importlib
 import shutil
 import sys
@@ -70,6 +70,13 @@ _tf.run_step = _hooked_run_step
 
 from airtest.core.api import *
 from airtest.core.settings import Settings as ST
+
+
+# ============================================================================
+# CONFIG
+# ============================================================================
+
+RECORDING: bool = True  # scrcpy screen recording (set False to disable)
 
 
 # ============================================================================
@@ -143,42 +150,47 @@ def _generate_html(air_path: Path, out_dir: Path) -> None:
 # ============================================================================
 
 def main():
-    parser = argparse.ArgumentParser(description="Dagster — run .air projects with structured logging")
-    parser.add_argument("target", type=Path, nargs="?", default=Path("."))
-    parser.add_argument("--device", type=str, default=None, help="Device URI (Android://...)")
-    parser.add_argument(
-        "--recording",
-        action=argparse.BooleanOptionalAction,
-        default=True,
-        help="Enable scrcpy recording (default: True)",
-    )
-    args = parser.parse_args()
+    raw_args = sys.argv[1:]
+    if not raw_args:
+        sys.exit(
+            "usage: python dagster_run.py <path-or-glob> [<path-or-glob> ...]\n"
+            "  ex: python dagster_run.py Test/DailyMission/tc01_*.air\n"
+            "      python dagster_run.py Test/DailyMission/*\n"
+            "      python dagster_run.py Test/*/*"
+        )
 
-    target = args.target.resolve()
+    # Expand globs internally (PowerShell does not auto-expand)
+    paths: list[Path] = []
+    for a in raw_args:
+        if any(c in a for c in "*?["):
+            matches = _glob.glob(a, recursive=True)
+            if not matches:
+                print(f"[WARN] no match for glob: {a}", file=sys.stderr)
+                continue
+            paths.extend(Path(m) for m in matches)
+        else:
+            paths.append(Path(a))
 
     # Discover .air test projects
-    if target.suffix == ".air" and target.exists():
-        tests = [target]
-    elif target.is_dir():
-        tests = sorted(target.glob("*.air")) or sorted(target.rglob("*.air"))
-    else:
-        tests = []
+    tests: list[Path] = []
+    for p in paths:
+        p = p.resolve()
+        if p.suffix == ".air" and p.exists():
+            tests.append(p)
+        elif p.is_dir():
+            found = sorted(p.glob("*.air")) or sorted(p.rglob("*.air"))
+            tests.extend(found)
+
+    # Dedupe, keep order
+    seen: set[Path] = set()
+    tests = [t for t in tests if not (t in seen or seen.add(t))]
 
     if not tests:
-        sys.exit(f"[ERROR] No .air projects found at {target}")
+        sys.exit(f"[ERROR] No .air projects found in: {raw_args}")
 
-    # Setup device connection
-    if args.device:
-        uri = (
-            args.device
-            if args.device.lower().startswith("android://")
-            else f"Android://127.0.0.1:5037/{args.device}"
-        )
-        connect_device(uri)
-        device_id = args.device.rsplit("/", 1)[-1]
-    else:
-        init_device()
-        device_id = G.DEVICE.serialno
+    # Setup device connection (auto-detect first ADB device)
+    init_device()
+    device_id = G.DEVICE.serialno
 
     # Setup output directory
     dagster_dir = Path(__file__).resolve().parent
@@ -212,7 +224,7 @@ def main():
         # Setup recording
         recorder = None
         recording_path = out_dir / f"recording_{device_id}_{module_name}.mp4"
-        if args.recording:
+        if RECORDING:
             try:
                 from ScrcpyRecorder import ScrcpyRecorder
                 recorder = ScrcpyRecorder(output=str(recording_path), device=device_id, scrcpy_path=scrcpy_path)
