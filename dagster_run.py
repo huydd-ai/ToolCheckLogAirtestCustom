@@ -12,6 +12,7 @@ Non-invasive: does not write to the project's Test/ or pixon/ directories.
 
 import glob as _glob
 import importlib
+import logging
 import shutil
 import sys
 from datetime import datetime
@@ -77,6 +78,30 @@ from airtest.core.settings import Settings as ST
 # ============================================================================
 
 RECORDING: bool = True  # scrcpy screen recording (set False to disable)
+LOG_LEVEL: int = logging.INFO  # console verbosity (DEBUG for more detail)
+
+
+# ============================================================================
+# CONSOLE LOGGING - Stream Airtest's internal logs to stdout
+# ============================================================================
+
+def _setup_console_logging(level: int = logging.INFO) -> None:
+    """Attach a stdout StreamHandler to Airtest's loggers so steps print to CLI."""
+    fmt = logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s", datefmt="%H:%M:%S")
+    handler = logging.StreamHandler(sys.stdout)
+    handler.setFormatter(fmt)
+    handler.setLevel(level)
+    # Cover Airtest + Poco namespaces; root left untouched to avoid 3rd-party noise.
+    for logger_name in ("airtest", "poco"):
+        lg = logging.getLogger(logger_name)
+        lg.setLevel(level)
+        # Avoid duplicate handlers on re-entry
+        if not any(isinstance(h, logging.StreamHandler) for h in lg.handlers):
+            lg.addHandler(handler)
+        lg.propagate = False
+
+
+_setup_console_logging(LOG_LEVEL)
 
 
 # ============================================================================
