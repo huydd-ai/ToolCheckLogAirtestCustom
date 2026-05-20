@@ -13,8 +13,8 @@ Non-invasive: does not write to the project's Test/ or pixon/ directories.
 import glob as _glob
 import importlib
 import logging
-import shutil
 import sys
+import time as _time
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
@@ -37,29 +37,62 @@ from pixon.common import test_flow as _tf
 _steps: list[dict] = []
 _orig_run_step = _tf.run_step
 
+def _emit_step_log(name: str, action_name: str, start: float, end: float, ret: Any, traceback: str | None) -> None:
+    """Emit an Airtest NDJSON 'function' entry so LogToHtml can show the step in report.html."""
+    try:
+        from airtest.core.helper import G as _G
+        data: dict[str, Any] = {
+            "name": name,
+            "call_args": {"action": action_name},
+            "start_time": start,
+            "end_time": end,
+            "ret": ret,
+        }
+        if traceback is not None:
+            data["traceback"] = traceback
+        _G.LOGGER.log("function", depth=1, data=data)
+    except Exception:
+        pass  # logger may not be initialized yet (e.g. before auto_setup)
+
+
+def _snapshot_step(name: str) -> str | None:
+    """Take an Airtest snapshot tied to the step name so HTML binds an image to the step."""
+    try:
+        from airtest.core.api import snapshot as _snap
+        result = _snap(msg=name)
+        if isinstance(result, dict):
+            return result.get("screen")
+        return None
+    except Exception:
+        return None
+
+
 def _hooked_run_step(name: str, action: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
     """Intercept run_step calls to capture step name, action, status, screenshot, and error."""
+    action_name = getattr(action, "__name__", str(action))
     step = {
         "name": name,
-        "action": getattr(action, "__name__", str(action)),
+        "action": action_name,
         "status": None,
         "screenshot": None,
         "behaviour": None,
     }
+    start = _time.time()
     try:
         result = _orig_run_step(name, action, *args, **kwargs)
+        screen_path = _snapshot_step(name)
         step["status"] = "PASS"
-        # Screenshot is approximate: Airtest flushes async, so this captures
-        # the most recent image at call time, which may be from this step or
-        # the previous one.
-        step["screenshot"] = _latest_screenshot()
+        step["screenshot"] = screen_path or _latest_screenshot()
         _steps.append(step)
+        _emit_step_log(name, action_name, start, _time.time(), ret=screen_path, traceback=None)
         return result
     except Exception as exc:
+        screen_path = _snapshot_step(name)
         step["status"] = "FAIL"
-        step["screenshot"] = _latest_screenshot()
+        step["screenshot"] = screen_path or _latest_screenshot()
         step["behaviour"] = str(exc)
         _steps.append(step)
+        _emit_step_log(name, action_name, start, _time.time(), ret=screen_path, traceback=str(exc))
         raise
 
 _tf.run_step = _hooked_run_step
@@ -153,20 +186,25 @@ def _write_log_txt(out_dir: Path, tc_name: str, steps: list[dict], error_top: Ex
     log_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
-def _generate_html(air_path: Path, out_dir: Path) -> None:
-    """Generate Airtest HTML report from NDJSON log."""
+def _generate_html(air_path: Path, out_dir: Path, ndjson_name: str = "airtest.log") -> None:
+    """Generate Airtest HTML report from NDJSON log.
+
+    LogToHtml reads <log_root>/<logfile>, renders the template, and writes report.html.
+    `export_dir` triggers bundling of static assets (css/js/fonts) into the output dir
+    so the report is self-contained and viewable offline.
+    """
     try:
         from airtest.report.report import LogToHtml
 
-        # LogToHtml needs script_root (for template images) and log_root (for log.txt)
-        # It will find log.txt at log_root/log.txt
         log_to_html = LogToHtml(
             script_root=str(air_path),
             log_root=str(out_dir),
+            logfile=ndjson_name,
+            export_dir=str(out_dir),
+            lang="en",
         )
         log_to_html.report(output_file=str(out_dir / "report.html"))
     except Exception as e:
-        # Silently skip HTML generation if it fails — log.txt is the primary output
         print(f"[WARN] Failed to generate HTML report: {e}", file=sys.stderr)
 
 
@@ -241,10 +279,10 @@ def main():
         # Setup Airtest for this test
         auto_setup(str(air_py))
 
-        # Redirect Airtest logging to dagster output directory
-        # Use report.json for Airtest's NDJSON so we can use log.txt for our structured format
+        # Redirect Airtest logging + screenshots to dagster output dir.
+        # NDJSON goes to airtest.log (LogToHtml input); dagster's structured log goes to log.txt.
         ST.LOG_DIR = str(out_dir)
-        G.LOGGER.set_logfile(str(out_dir / "report.json"))
+        G.LOGGER.set_logfile(str(out_dir / "airtest.log"))
 
         # Setup recording
         recorder = None
@@ -288,17 +326,10 @@ def main():
             except Exception:
                 pass
 
-            # Generate HTML report — LogToHtml expects log.txt, so copy report.json
-            # there temporarily, generate, then remove the copy.
+            # Generate HTML report directly from airtest.log (no rename dance).
             try:
-                report_json = out_dir / "report.json"
-                tmp_log = out_dir / "log.txt"
-                if report_json.exists():
-                    shutil.copy2(report_json, tmp_log)
-                _generate_html(air_path, out_dir)
+                _generate_html(air_path, out_dir, ndjson_name="airtest.log")
                 print(f"[INFO] report.html generated")
-                if tmp_log.exists():
-                    tmp_log.unlink()
             except Exception as e:
                 print(f"[WARN] Failed to generate report: {e}", file=sys.stderr)
 
