@@ -13,7 +13,6 @@ Non-invasive: does not write to the project's Test/ or pixon/ directories.
 import glob as _glob
 import importlib
 import logging
-import shutil
 import sys
 import time as _time
 from datetime import datetime
@@ -112,7 +111,7 @@ from airtest.core.settings import Settings as ST
 # ============================================================================
 
 RECORDING: bool = True  # scrcpy screen recording (set False to disable)
-LOG_LEVEL: int = logging.INFO  # console verbosity (DEBUG for more detail)
+LOG_LEVEL: int = logging.DEBUG  # console verbosity (DEBUG for more detail)
 
 
 # ============================================================================
@@ -187,6 +186,50 @@ def _write_log_txt(out_dir: Path, tc_name: str, steps: list[dict], error_top: Ex
     log_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
+def _normalize_airtest_depth(log_path: Path) -> None:
+    """Promote NDJSON entry depths so the minimum becomes 1.
+
+    LogToHtml only renders entries with depth==1. Pixon wrappers call airtest APIs
+    one level deep, producing depth=2 entries that LogToHtml hides. Offset all
+    depths so the outermost level becomes 1.
+    """
+    import json
+
+    if not log_path.exists():
+        return
+    try:
+        raw_lines = log_path.read_text(encoding="utf-8").splitlines()
+        entries: list[dict] = []
+        depths: list[int] = []
+        for ln in raw_lines:
+            ln = ln.strip()
+            if not ln:
+                continue
+            try:
+                obj = json.loads(ln)
+            except json.JSONDecodeError:
+                continue
+            entries.append(obj)
+            d = obj.get("depth")
+            if isinstance(d, int):
+                depths.append(d)
+        if not depths:
+            return
+        offset = min(depths) - 1
+        if offset <= 0:
+            return
+        for obj in entries:
+            d = obj.get("depth")
+            if isinstance(d, int):
+                obj["depth"] = d - offset
+        log_path.write_text(
+            "\n".join(json.dumps(o, ensure_ascii=False) for o in entries) + "\n",
+            encoding="utf-8",
+        )
+    except Exception as e:
+        print(f"[WARN] depth normalize failed: {e}", file=sys.stderr)
+
+
 def _generate_html(
     air_path: Path,
     out_dir: Path,
@@ -195,14 +238,18 @@ def _generate_html(
 ) -> None:
     """Generate Airtest HTML report from NDJSON log.
 
-    `export_dir` makes Airtest produce a self-contained `<stem>.log/` subdir with
-    css/js/fonts bundled. We then flatten that subdir back into `out_dir` so the
-    final layout is flat: report.html + assets next to log.txt + recordings.
+    Airtest's `export_dir` writes a self-contained `<stem>.log/` subdir with
+    css/js/fonts bundled. We leave it intact (Airtest bakes relative paths into
+    the embedded JSON), then write a redirect HTML at `out_dir/report.html` so
+    the top-level file always opens the working report.
 
     `record_list` injects <video> tags into the HTML for screen recording playback.
     """
     try:
         from airtest.report.report import LogToHtml
+
+        # Promote depth in NDJSON so LogToHtml's depth==1 filter shows our steps.
+        _normalize_airtest_depth(out_dir / ndjson_name)
 
         recordings = recordings or []
         record_list = [str(p) for p in recordings if p.exists()]
@@ -216,27 +263,20 @@ def _generate_html(
         )
         log_to_html.report(output_file="report.html", record_list=record_list)
 
-        # Flatten: move <stem>.log/* up into out_dir, drop the subdir
+        # Write redirect at top-level report.html → <stem>.log/report.html.
         exported = out_dir / f"{air_path.stem}.log"
-        if exported.exists() and exported.is_dir():
-            for item in exported.iterdir():
-                target = out_dir / item.name
-                if target.exists():
-                    if target.is_dir():
-                        shutil.rmtree(target)
-                    else:
-                        target.unlink()
-                shutil.move(str(item), str(target))
-            try:
-                exported.rmdir()
-            except OSError:
-                shutil.rmtree(exported, ignore_errors=True)
-
-        # If template emitted log.html instead of report.html, normalize
-        log_html = out_dir / "log.html"
-        report_html = out_dir / "report.html"
-        if log_html.exists() and not report_html.exists():
-            log_html.rename(report_html)
+        target_report = exported / "report.html"
+        if not target_report.exists():
+            target_report = exported / "log.html"
+        if target_report.exists():
+            redirect_rel = f"{exported.name}/{target_report.name}"
+            (out_dir / "report.html").write_text(
+                "<!DOCTYPE html><meta charset=\"utf-8\">"
+                f"<meta http-equiv=\"refresh\" content=\"0; url={redirect_rel}\">"
+                "<title>Redirecting...</title>"
+                f"<p>If you are not redirected, <a href=\"{redirect_rel}\">click here</a>.</p>",
+                encoding="utf-8",
+            )
     except Exception as e:
         print(f"[WARN] Failed to generate HTML report: {e}", file=sys.stderr)
 
