@@ -13,6 +13,7 @@ Non-invasive: does not write to the project's Test/ or pixon/ directories.
 import glob as _glob
 import importlib
 import logging
+import shutil
 import sys
 import time as _time
 from datetime import datetime
@@ -236,6 +237,12 @@ def _generate_html(
     ndjson_name: str = "airtest.log",
     recordings: list[Path] | None = None,
 ) -> None:
+def _generate_html(
+    air_path: Path,
+    out_dir: Path,
+    ndjson_name: str = "airtest.log",
+    recordings: list[Path] | None = None,
+) -> None:
     """Generate Airtest HTML report from NDJSON log.
 
     Airtest's `export_dir` writes a self-contained `<stem>.log/` subdir with
@@ -244,12 +251,20 @@ def _generate_html(
     the top-level file always opens the working report.
 
     `record_list` injects <video> tags into the HTML for screen recording playback.
+    `export_dir` makes Airtest produce a self-contained `<stem>.log/` subdir with
+    css/js/fonts bundled. We then flatten that subdir back into `out_dir` so the
+    final layout is flat: report.html + assets next to log.txt + recordings.
+
+    `record_list` injects <video> tags into the HTML for screen recording playback.
     """
     try:
         from airtest.report.report import LogToHtml
 
         # Promote depth in NDJSON so LogToHtml's depth==1 filter shows our steps.
         _normalize_airtest_depth(out_dir / ndjson_name)
+
+        recordings = recordings or []
+        record_list = [str(p) for p in recordings if p.exists()]
 
         recordings = recordings or []
         record_list = [str(p) for p in recordings if p.exists()]
@@ -277,6 +292,29 @@ def _generate_html(
                 f"<p>If you are not redirected, <a href=\"{redirect_rel}\">click here</a>.</p>",
                 encoding="utf-8",
             )
+        log_to_html.report(output_file="report.html", record_list=record_list)
+
+        # Flatten: move <stem>.log/* up into out_dir, drop the subdir
+        exported = out_dir / f"{air_path.stem}.log"
+        if exported.exists() and exported.is_dir():
+            for item in exported.iterdir():
+                target = out_dir / item.name
+                if target.exists():
+                    if target.is_dir():
+                        shutil.rmtree(target)
+                    else:
+                        target.unlink()
+                shutil.move(str(item), str(target))
+            try:
+                exported.rmdir()
+            except OSError:
+                shutil.rmtree(exported, ignore_errors=True)
+
+        # If template emitted log.html instead of report.html, normalize
+        log_html = out_dir / "log.html"
+        report_html = out_dir / "report.html"
+        if log_html.exists() and not report_html.exists():
+            log_html.rename(report_html)
     except Exception as e:
         print(f"[WARN] Failed to generate HTML report: {e}", file=sys.stderr)
 
@@ -400,7 +438,15 @@ def main():
                 pass
 
             # Generate HTML report directly from airtest.log; inject recordings.
+            # Generate HTML report directly from airtest.log; inject recordings.
             try:
+                recordings = sorted(out_dir.glob("recording_*.mp4"))
+                _generate_html(
+                    air_path,
+                    out_dir,
+                    ndjson_name="airtest.log",
+                    recordings=recordings,
+                )
                 recordings = sorted(out_dir.glob("recording_*.mp4"))
                 _generate_html(
                     air_path,
