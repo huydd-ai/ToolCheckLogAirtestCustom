@@ -111,7 +111,7 @@ from airtest.core.settings import Settings as ST
 # ============================================================================
 
 RECORDING: bool = True  # scrcpy screen recording (set False to disable)
-LOG_LEVEL: int = logging.INFO  # console verbosity (DEBUG for more detail)
+LOG_LEVEL: int = logging.DEBUG  # console verbosity (DEBUG for more detail)
 
 
 # ============================================================================
@@ -186,15 +186,94 @@ def _write_log_txt(out_dir: Path, tc_name: str, steps: list[dict], error_top: Ex
     log_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
-def _generate_html(air_path: Path, out_dir: Path, ndjson_name: str = "airtest.log") -> None:
+def _normalize_airtest_depth(log_path: Path) -> None:
+    """Promote NDJSON entry depths so the minimum becomes 1.
+
+    LogToHtml only renders entries with depth==1. Pixon wrappers call airtest APIs
+    one level deep, producing depth=2 entries that LogToHtml hides. Offset all
+    depths so the outermost level becomes 1.
+    """
+    import json
+
+    if not log_path.exists():
+        return
+    try:
+        raw_lines = log_path.read_text(encoding="utf-8").splitlines()
+        entries: list[dict] = []
+        depths: list[int] = []
+        for ln in raw_lines:
+            ln = ln.strip()
+            if not ln:
+                continue
+            try:
+                obj = json.loads(ln)
+            except json.JSONDecodeError:
+                continue
+            entries.append(obj)
+            d = obj.get("depth")
+            if isinstance(d, int):
+                depths.append(d)
+        if not depths:
+            return
+        offset = min(depths) - 1
+        if offset <= 0:
+            return
+        for obj in entries:
+            d = obj.get("depth")
+            if isinstance(d, int):
+                obj["depth"] = d - offset
+        log_path.write_text(
+            "\n".join(json.dumps(o, ensure_ascii=False) for o in entries) + "\n",
+            encoding="utf-8",
+        )
+    except Exception as e:
+        print(f"[WARN] depth normalize failed: {e}", file=sys.stderr)
+
+
+def _generate_html(
+    air_path: Path,
+    out_dir: Path,
+    ndjson_name: str = "airtest.log",
+    recordings: list[Path] | None = None,
+    fail_message: str | None = None,
+) -> None:
     """Generate Airtest HTML report from NDJSON log.
 
-    LogToHtml reads <log_root>/<logfile>, renders the template, and writes report.html.
-    `export_dir` triggers bundling of static assets (css/js/fonts) into the output dir
-    so the report is self-contained and viewable offline.
+    Airtest's `export_dir` writes a self-contained `<stem>.log/` subdir with
+    css/js/fonts bundled. We leave it intact (Airtest bakes relative paths into
+    the embedded JSON), then write a redirect HTML at `out_dir/report.html` so
+    the top-level file always opens the working report.
+
+    `record_list` injects <video> tags into the HTML for screen recording playback.
     """
     try:
         from airtest.report.report import LogToHtml
+
+        # Promote depth in NDJSON so LogToHtml's depth==1 filter shows our steps.
+        _normalize_airtest_depth(out_dir / ndjson_name)
+
+        # LogToHtml._analyse() checks only the LAST entry for traceback to set test_result.
+        # Append a sentinel entry so failures surface correctly in the HTML status badge.
+        if fail_message:
+            import json as _json
+            sentinel = {
+                "tag": "function",
+                "depth": 1,
+                "time": _time.time(),
+                "data": {
+                    "name": "test_result",
+                    "traceback": fail_message,
+                    "log": fail_message,
+                    "snapshot": False,
+                    "call_args": {},
+                },
+            }
+            ndjson_path = out_dir / ndjson_name
+            with ndjson_path.open("a", encoding="utf-8") as f:
+                f.write(_json.dumps(sentinel, ensure_ascii=False) + "\n")
+
+        recordings = recordings or []
+        record_list = [str(p) for p in recordings if p.exists()]
 
         log_to_html = LogToHtml(
             script_root=str(air_path),
@@ -203,7 +282,22 @@ def _generate_html(air_path: Path, out_dir: Path, ndjson_name: str = "airtest.lo
             export_dir=str(out_dir),
             lang="en",
         )
-        log_to_html.report(output_file=str(out_dir / "report.html"))
+        log_to_html.report(output_file="report.html", record_list=record_list)
+
+        # Write redirect at top-level report.html → <stem>.log/report.html.
+        exported = out_dir / f"{air_path.stem}.log"
+        target_report = exported / "report.html"
+        if not target_report.exists():
+            target_report = exported / "log.html"
+        if target_report.exists():
+            redirect_rel = f"{exported.name}/{target_report.name}"
+            (out_dir / "report.html").write_text(
+                "<!DOCTYPE html><meta charset=\"utf-8\">"
+                f"<meta http-equiv=\"refresh\" content=\"0; url={redirect_rel}\">"
+                "<title>Redirecting...</title>"
+                f"<p>If you are not redirected, <a href=\"{redirect_rel}\">click here</a>.</p>",
+                encoding="utf-8",
+            )
     except Exception as e:
         print(f"[WARN] Failed to generate HTML report: {e}", file=sys.stderr)
 
@@ -213,14 +307,15 @@ def _generate_html(air_path: Path, out_dir: Path, ndjson_name: str = "airtest.lo
 # ============================================================================
 
 def main():
-    raw_args = sys.argv[1:]
-    if not raw_args:
-        sys.exit(
-            "usage: python dagster_run.py <path-or-glob> [<path-or-glob> ...]\n"
-            "  ex: python dagster_run.py Test/DailyMission/tc01_*.air\n"
-            "      python dagster_run.py Test/DailyMission/*\n"
-            "      python dagster_run.py Test/*/*"
-        )
+    import argparse
+    parser = argparse.ArgumentParser(description="Dagster runner")
+    parser.add_argument("target", nargs="+", help="Paths or globs to .air projects")
+    parser.add_argument("--device", type=str, default=None, help="Specific device serial to connect to")
+    parser.add_argument("--shard-index", type=int, default=0, help="Shard index (0-indexed)")
+    parser.add_argument("--shard-total", type=int, default=1, help="Total number of shards")
+    args, _ = parser.parse_known_args(sys.argv[1:])
+
+    raw_args = args.target
 
     # Expand globs internally (PowerShell does not auto-expand)
     paths: list[Path] = []
@@ -250,10 +345,24 @@ def main():
 
     if not tests:
         sys.exit(f"[ERROR] No .air projects found in: {raw_args}")
+        
+    # Shard the tests
+    if args.shard_total > 1:
+        tests = [t for i, t in enumerate(tests) if i % args.shard_total == args.shard_index]
+        print(f"[INFO] Running shard {args.shard_index + 1}/{args.shard_total} ({len(tests)} tests)")
 
-    # Setup device connection (auto-detect first ADB device)
-    init_device()
-    device_id = G.DEVICE.serialno
+    # Setup device connection
+    if args.device:
+        uri = args.device if args.device.lower().startswith("android://") \
+            else f"Android://127.0.0.1:5037/{args.device}"
+        connect_device(uri)
+        device_id = args.device.rsplit("/", 1)[-1]
+    else:
+        init_device()
+        device_id = G.DEVICE.serialno
+
+    from pixon.common.adb_utils import set_default_serial
+    set_default_serial(device_id)
 
     # Setup output directory
     dagster_dir = Path(__file__).resolve().parent
@@ -289,6 +398,7 @@ def main():
         recording_path = out_dir / f"recording_{device_id}_{module_name}.mp4"
         if RECORDING:
             try:
+                # pyrefly: ignore [missing-import]
                 from ScrcpyRecorder import ScrcpyRecorder
                 recorder = ScrcpyRecorder(output=str(recording_path), device=device_id, scrcpy_path=scrcpy_path)
                 recorder.start()
@@ -326,9 +436,22 @@ def main():
             except Exception:
                 pass
 
-            # Generate HTML report directly from airtest.log (no rename dance).
+            # Generate HTML report directly from airtest.log; inject recordings.
             try:
-                _generate_html(air_path, out_dir, ndjson_name="airtest.log")
+                recordings = sorted(out_dir.glob("recording_*.mp4"))
+                fail_message = None
+                if error_top:
+                    fail_message = str(error_top)
+                elif any(s["status"] == "FAIL" for s in _steps):
+                    failed = next(s for s in _steps if s["status"] == "FAIL")
+                    fail_message = failed.get("behaviour") or f"Step failed: {failed['name']}"
+                _generate_html(
+                    air_path,
+                    out_dir,
+                    ndjson_name="airtest.log",
+                    recordings=recordings,
+                    fail_message=fail_message,
+                )
                 print(f"[INFO] report.html generated")
             except Exception as e:
                 print(f"[WARN] Failed to generate report: {e}", file=sys.stderr)
