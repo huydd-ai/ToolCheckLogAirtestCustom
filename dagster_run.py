@@ -474,7 +474,7 @@ def main():
             if status == "FAIL":
                 run_had_failure = True
             # Machine-readable result line for the parallel orchestrator to parse.
-            print(f"[RESULT] {module_name} {status} {out_dir}")
+            print(f"[RESULT]\t{module_name}\t{status}\t{out_dir}")
 
     # Teardown
     try:
