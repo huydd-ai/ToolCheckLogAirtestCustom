@@ -22,3 +22,17 @@ def partition(items: list, n: int) -> list[list]:
         chunks.append(items[start:start + size])
         start += size
     return chunks
+
+
+def parse_adb_devices(text: str) -> list[str]:
+    """Parse `adb devices` stdout; return serials whose state is exactly 'device'.
+
+    Skips the 'List of devices attached' header and any offline/unauthorized
+    entries. Mirrors the parse convention in pixon/common/adb_utils.py.
+    """
+    serials: list[str] = []
+    for line in text.splitlines()[1:]:  # drop header line
+        parts = line.split()
+        if len(parts) >= 2 and parts[1] == "device":
+            serials.append(parts[0])
+    return serials
