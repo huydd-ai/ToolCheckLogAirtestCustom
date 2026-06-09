@@ -335,16 +335,20 @@ def _run_parallel(tests: list[Path], devices: list[str], report_root: Path) -> i
 
     def reader(serial: str, proc: subprocess.Popen) -> None:
         for raw in proc.stdout:  # type: ignore[union-attr]
-            line = raw.rstrip("\n")
-            with print_lock:
-                print(f"[{serial}] {line}")
-            if line.startswith("[RESULT]\t"):
-                parts = line.split("\t")
-                if len(parts) == 4:
-                    _, flow, status, rdir = parts
-                    with results_lock:
-                        results.append({"serial": serial, "flow": flow,
-                                        "status": status, "dir": rdir})
+            try:
+                line = raw.rstrip("\n")
+                with print_lock:
+                    print(f"[{serial}] {line}")
+                if line.startswith("[RESULT]\t"):
+                    parts = line.split("\t")
+                    if len(parts) == 4:
+                        _, flow, status, rdir = parts
+                        with results_lock:
+                            results.append({"serial": serial, "flow": flow,
+                                            "status": status, "dir": rdir})
+            except Exception as e:  # noqa: BLE001 - a reader must never die silently
+                with print_lock:
+                    print(f"[{serial}] [WARN] reader error: {e}", file=sys.stderr)
 
     self_path = str(Path(__file__).resolve())
     procs: list[tuple[str, subprocess.Popen]] = []
@@ -352,7 +356,8 @@ def _run_parallel(tests: list[Path], devices: list[str], report_root: Path) -> i
     for serial, chunk in assignments:
         cmd = [sys.executable, "-u", self_path, *[str(t) for t in chunk], "--device", serial]
         proc = subprocess.Popen(cmd, stdout=subprocess.PIPE,
-                                stderr=subprocess.STDOUT, text=True, bufsize=1)
+                                stderr=subprocess.STDOUT, text=True, bufsize=1,
+                                encoding="utf-8", errors="replace")
         th = threading.Thread(target=reader, args=(serial, proc), daemon=True)
         th.start()
         procs.append((serial, proc))
@@ -365,8 +370,8 @@ def _run_parallel(tests: list[Path], devices: list[str], report_root: Path) -> i
             th.join()
             return_codes[serial] = proc.returncode
     except BaseException:
-        # Ctrl-C or unexpected error: terminate any still-running children so we
-        # don't leave orphaned scrcpy/adb processes behind.
+        # Ctrl-C or unexpected error: attempt to terminate child processes.
+        # (Best-effort: a child's scrcpy grandchild may still need manual cleanup.)
         for _serial, proc in procs:
             try:
                 proc.terminate()
@@ -454,10 +459,14 @@ def main():
         if not devices:
             sys.exit("[ERROR] No adb devices in 'device' state. "
                      "Connect a device or pass --device <serial>.")
-        if len(devices) > 1:
+        if len(devices) > 1 and args.shard_total == 1:
             report_root = Path(__file__).resolve().parent / "report_run"
             report_root.mkdir(parents=True, exist_ok=True)
             sys.exit(_run_parallel(tests, devices, report_root))
+        if len(devices) > 1:
+            print(f"[INFO] {len(devices)} devices connected but --shard-total="
+                  f"{args.shard_total} was set; using explicit sharding on a single "
+                  f"device instead of auto-parallel.", file=sys.stderr)
     # --- end orchestration ----------------------------------------------
 
     # Shard the tests
