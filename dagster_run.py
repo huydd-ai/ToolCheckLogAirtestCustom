@@ -13,11 +13,15 @@ Non-invasive: does not write to the project's Test/ or pixon/ directories.
 import glob as _glob
 import importlib
 import logging
+import subprocess
 import sys
+import threading
 import time as _time
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
+
+from parallel_utils import list_devices, partition
 
 # Add project root to path so pixon module can be imported,
 # and dagster dir so sibling helpers (ScrcpyRecorder) resolve.
@@ -300,6 +304,78 @@ def _generate_html(
             )
     except Exception as e:
         print(f"[WARN] Failed to generate HTML report: {e}", file=sys.stderr)
+
+
+# ============================================================================
+# PARALLEL ORCHESTRATOR
+# ============================================================================
+
+def _run_parallel(tests: list[Path], devices: list[str], report_root: Path) -> int:
+    """Spawn one child `dagster_run.py --device <serial>` per device, stream their
+    output live (prefixed [serial]), then print + write a combined summary.
+    Returns the process exit code (1 if any flow failed or any child errored)."""
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    parallel_dir = report_root / f"_parallel_{ts}"
+    parallel_dir.mkdir(parents=True, exist_ok=True)
+
+    chunks = partition(tests, len(devices))
+    assignments = [(dev, chunk) for dev, chunk in zip(devices, chunks) if chunk]
+
+    print(f"[INFO] {len(tests)} flow(s) across {len(assignments)} device(s):")
+    for dev, chunk in assignments:
+        print(f"  {dev}: {', '.join(t.stem for t in chunk)}")
+
+    print_lock = threading.Lock()
+    results_lock = threading.Lock()
+    results: list[dict] = []  # {serial, flow, status, dir}
+
+    def reader(serial: str, proc: subprocess.Popen) -> None:
+        for raw in proc.stdout:  # type: ignore[union-attr]
+            line = raw.rstrip("\n")
+            with print_lock:
+                print(f"[{serial}] {line}")
+            if line.startswith("[RESULT]\t"):
+                parts = line.split("\t")
+                if len(parts) == 4:
+                    _, flow, status, rdir = parts
+                    with results_lock:
+                        results.append({"serial": serial, "flow": flow,
+                                        "status": status, "dir": rdir})
+
+    self_path = str(Path(__file__).resolve())
+    procs: list[tuple[str, subprocess.Popen]] = []
+    threads: list[threading.Thread] = []
+    for serial, chunk in assignments:
+        cmd = [sys.executable, self_path, *[str(t) for t in chunk], "--device", serial]
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE,
+                                stderr=subprocess.STDOUT, text=True, bufsize=1)
+        th = threading.Thread(target=reader, args=(serial, proc), daemon=True)
+        th.start()
+        procs.append((serial, proc))
+        threads.append(th)
+
+    return_codes: dict[str, int] = {}
+    for (serial, proc), th in zip(procs, threads):
+        proc.wait()
+        th.join()
+        return_codes[serial] = proc.returncode
+
+    failed = [r for r in results if r["status"] == "FAIL"]
+    any_rc_error = any(rc != 0 for rc in return_codes.values())
+    exit_code = 1 if (failed or any_rc_error) else 0
+
+    lines = [f"=== RUN SUMMARY ({len(assignments)} devices, {len(tests)} flows) ==="]
+    for serial, _chunk in assignments:
+        cells = [f"{r['flow']} {r['status']}" for r in results if r["serial"] == serial]
+        if cells:
+            lines.append(f"{serial}  " + "  ".join(cells))
+        else:
+            lines.append(f"{serial}  (no results, rc={return_codes.get(serial, -1)})")
+    lines.append(f"EXIT {exit_code} ({len(failed)} failed)")
+    summary = "\n".join(lines)
+    print(summary)
+    (parallel_dir / "summary.txt").write_text(summary + "\n", encoding="utf-8")
+    return exit_code
 
 
 # ============================================================================
