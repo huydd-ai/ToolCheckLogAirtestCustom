@@ -443,7 +443,23 @@ def main():
 
     if not tests:
         sys.exit(f"[ERROR] No .air projects found in: {raw_args}")
-        
+
+    # --- Parallel multi-device orchestration -----------------------------
+    # No explicit --device: auto-detect connected devices. With >1 device,
+    # spawn one child process per device (each child re-enters this script
+    # with --device <serial> and runs its slice in-process on that device).
+    # Exactly 1 device (or --device set) falls through to the in-process path.
+    if not args.device:
+        devices = list_devices()
+        if not devices:
+            sys.exit("[ERROR] No adb devices in 'device' state. "
+                     "Connect a device or pass --device <serial>.")
+        if len(devices) > 1:
+            report_root = Path(__file__).resolve().parent / "report_run"
+            report_root.mkdir(parents=True, exist_ok=True)
+            sys.exit(_run_parallel(tests, devices, report_root))
+    # --- end orchestration ----------------------------------------------
+
     # Shard the tests
     if args.shard_total > 1:
         tests = [t for i, t in enumerate(tests) if i % args.shard_total == args.shard_index]
