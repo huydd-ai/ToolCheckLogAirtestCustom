@@ -324,14 +324,15 @@ def _generate_html(
 # ============================================================================
 
 def main():
-    raw_args = sys.argv[1:]
-    if not raw_args:
-        sys.exit(
-            "usage: python dagster_run.py <path-or-glob> [<path-or-glob> ...]\n"
-            "  ex: python dagster_run.py Test/DailyMission/tc01_*.air\n"
-            "      python dagster_run.py Test/DailyMission/*\n"
-            "      python dagster_run.py Test/*/*"
-        )
+    import argparse
+    parser = argparse.ArgumentParser(description="Dagster runner")
+    parser.add_argument("target", nargs="+", help="Paths or globs to .air projects")
+    parser.add_argument("--device", type=str, default=None, help="Specific device serial to connect to")
+    parser.add_argument("--shard-index", type=int, default=0, help="Shard index (0-indexed)")
+    parser.add_argument("--shard-total", type=int, default=1, help="Total number of shards")
+    args, _ = parser.parse_known_args(sys.argv[1:])
+
+    raw_args = args.target
 
     # Expand globs internally (PowerShell does not auto-expand)
     paths: list[Path] = []
@@ -361,10 +362,24 @@ def main():
 
     if not tests:
         sys.exit(f"[ERROR] No .air projects found in: {raw_args}")
+        
+    # Shard the tests
+    if args.shard_total > 1:
+        tests = [t for i, t in enumerate(tests) if i % args.shard_total == args.shard_index]
+        print(f"[INFO] Running shard {args.shard_index + 1}/{args.shard_total} ({len(tests)} tests)")
 
-    # Setup device connection (auto-detect first ADB device)
-    init_device()
-    device_id = G.DEVICE.serialno
+    # Setup device connection
+    if args.device:
+        uri = args.device if args.device.lower().startswith("android://") \
+            else f"Android://127.0.0.1:5037/{args.device}"
+        connect_device(uri)
+        device_id = args.device.rsplit("/", 1)[-1]
+    else:
+        init_device()
+        device_id = G.DEVICE.serialno
+
+    from pixon.common.adb_utils import set_default_serial
+    set_default_serial(device_id)
 
     # Setup output directory
     dagster_dir = Path(__file__).resolve().parent
@@ -400,6 +415,7 @@ def main():
         recording_path = out_dir / f"recording_{device_id}_{module_name}.mp4"
         if RECORDING:
             try:
+                # pyrefly: ignore [missing-import]
                 from ScrcpyRecorder import ScrcpyRecorder
                 recorder = ScrcpyRecorder(output=str(recording_path), device=device_id, scrcpy_path=scrcpy_path)
                 recorder.start()
