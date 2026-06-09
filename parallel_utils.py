@@ -36,3 +36,21 @@ def parse_adb_devices(text: str) -> list[str]:
         if len(parts) >= 2 and parts[1] == "device":
             serials.append(parts[0])
     return serials
+
+
+def list_devices() -> list[str]:
+    """Enumerate connected ADB devices in the 'device' state.
+
+    Prefers the adb bundled with scrcpy (scrcpy-win64/adb.exe), falls back to
+    `adb` on PATH. Returns [] on any failure.
+    """
+    bundled = Path(__file__).resolve().parent / "scrcpy-win64" / "adb.exe"
+    adb_cmd = str(bundled) if bundled.exists() else "adb"
+    try:
+        out = subprocess.run(
+            [adb_cmd, "devices"], capture_output=True, text=True, timeout=10
+        )
+        return parse_adb_devices(out.stdout)
+    except Exception as e:  # noqa: BLE001 - enumeration must never crash the run
+        print(f"[WARN] `adb devices` failed: {e}", file=sys.stderr)
+        return []
