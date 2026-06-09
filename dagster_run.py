@@ -373,6 +373,7 @@ def main():
     scrcpy_path = str(Path(__file__).resolve().parent / "scrcpy-win64" / "scrcpy.exe")
 
     # Run each test
+    run_had_failure = False
     for air_path in tests:
         air_py = air_path / f"{air_path.stem}.py"
         if not air_py.exists():
@@ -408,6 +409,7 @@ def main():
         # Clear step capture for this test
         _steps.clear()
         error_top = None
+        status = "PASS"
 
         # Run the test
         sys.path.insert(0, str(air_path))
@@ -418,9 +420,11 @@ def main():
                 mod.main()
                 print(f"[PASS] {module_name}")
             else:
+                status = "SKIP"
                 print(f"[SKIP] {module_name} (no main function)")
         except Exception as e:
             error_top = e
+            status = "FAIL"
             print(f"[FAIL] {module_name}: {e}")
         finally:
             if recorder:
@@ -464,12 +468,22 @@ def main():
                 print(f"[WARN] Failed to write log.txt: {e}", file=sys.stderr)
 
             print(f"Report: {out_dir}")
+            # Promote to FAIL if any captured step failed (e.g. assertion inside main)
+            if status == "PASS" and any(s["status"] == "FAIL" for s in _steps):
+                status = "FAIL"
+            if status == "FAIL":
+                run_had_failure = True
+            # Machine-readable result line for the parallel orchestrator to parse.
+            print(f"[RESULT] {module_name} {status} {out_dir}")
 
     # Teardown
     try:
         G.DEVICE.disconnect()
     except Exception:
         pass
+
+    if run_had_failure:
+        sys.exit(1)
 
 
 if __name__ == "__main__":
