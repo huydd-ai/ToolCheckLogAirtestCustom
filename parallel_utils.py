@@ -11,6 +11,9 @@ def partition(items: list, n: int) -> list[list]:
 
     Remainder items are distributed to the first chunks:
     partition([a..g], 3) -> [[a,b,c],[d,e],[f,g]].
+
+    If n > len(items), trailing chunks will be empty lists; callers should
+    filter them if spawning one worker per chunk.
     """
     if n <= 0:
         return []

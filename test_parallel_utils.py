@@ -1,4 +1,6 @@
-from parallel_utils import partition, parse_adb_devices
+from unittest.mock import patch, MagicMock
+
+from parallel_utils import partition, parse_adb_devices, list_devices
 
 
 def test_partition_even():
@@ -33,3 +35,19 @@ def test_parse_returns_only_ready_devices():
 
 def test_parse_empty():
     assert parse_adb_devices("List of devices attached\n\n") == []
+
+
+def test_partition_empty_items():
+    assert partition([], 3) == [[], [], []]
+
+
+def test_list_devices_returns_ready_serials():
+    mock_result = MagicMock()
+    mock_result.stdout = "List of devices attached\nRZ8N20ABCDE\tdevice\n"
+    with patch("parallel_utils.subprocess.run", return_value=mock_result):
+        assert list_devices() == ["RZ8N20ABCDE"]
+
+
+def test_list_devices_returns_empty_on_failure():
+    with patch("parallel_utils.subprocess.run", side_effect=FileNotFoundError("adb not found")):
+        assert list_devices() == []
