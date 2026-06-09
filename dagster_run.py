@@ -321,6 +321,10 @@ def _run_parallel(tests: list[Path], devices: list[str], report_root: Path) -> i
     chunks = partition(tests, len(devices))
     assignments = [(dev, chunk) for dev, chunk in zip(devices, chunks) if chunk]
 
+    if not assignments:
+        print("[ERROR] No devices to run on — aborting.", file=sys.stderr)
+        return 1
+
     print(f"[INFO] {len(tests)} flow(s) across {len(assignments)} device(s):")
     for dev, chunk in assignments:
         print(f"  {dev}: {', '.join(t.stem for t in chunk)}")
@@ -346,7 +350,7 @@ def _run_parallel(tests: list[Path], devices: list[str], report_root: Path) -> i
     procs: list[tuple[str, subprocess.Popen]] = []
     threads: list[threading.Thread] = []
     for serial, chunk in assignments:
-        cmd = [sys.executable, self_path, *[str(t) for t in chunk], "--device", serial]
+        cmd = [sys.executable, "-u", self_path, *[str(t) for t in chunk], "--device", serial]
         proc = subprocess.Popen(cmd, stdout=subprocess.PIPE,
                                 stderr=subprocess.STDOUT, text=True, bufsize=1)
         th = threading.Thread(target=reader, args=(serial, proc), daemon=True)
@@ -355,22 +359,40 @@ def _run_parallel(tests: list[Path], devices: list[str], report_root: Path) -> i
         threads.append(th)
 
     return_codes: dict[str, int] = {}
-    for (serial, proc), th in zip(procs, threads):
-        proc.wait()
-        th.join()
-        return_codes[serial] = proc.returncode
+    try:
+        for (serial, proc), th in zip(procs, threads):
+            proc.wait()  # TODO: add timeout= once a safe value is known — a hung device blocks the whole run
+            th.join()
+            return_codes[serial] = proc.returncode
+    except BaseException:
+        # Ctrl-C or unexpected error: terminate any still-running children so we
+        # don't leave orphaned scrcpy/adb processes behind.
+        for _serial, proc in procs:
+            try:
+                proc.terminate()
+            except OSError:
+                pass
+        raise
 
     failed = [r for r in results if r["status"] == "FAIL"]
     any_rc_error = any(rc != 0 for rc in return_codes.values())
     exit_code = 1 if (failed or any_rc_error) else 0
 
     lines = [f"=== RUN SUMMARY ({len(assignments)} devices, {len(tests)} flows) ==="]
-    for serial, _chunk in assignments:
+    for serial, chunk in assignments:
         cells = [f"{r['flow']} {r['status']}" for r in results if r["serial"] == serial]
-        if cells:
-            lines.append(f"{serial}  " + "  ".join(cells))
+        rc = return_codes.get(serial, -1)
+        if not cells:
+            lines.append(f"{serial}  (no results, rc={rc})")
+        elif len(cells) < len(chunk):
+            lines.append(f"{serial}  " + "  ".join(cells)
+                         + f"  (WARNING: only {len(cells)}/{len(chunk)} flows reported, rc={rc})")
         else:
-            lines.append(f"{serial}  (no results, rc={return_codes.get(serial, -1)})")
+            lines.append(f"{serial}  " + "  ".join(cells))
+    if failed:
+        lines.append("Failed flows:")
+        for r in failed:
+            lines.append(f"  {r['serial']} {r['flow']} -> {r['dir']}")
     lines.append(f"EXIT {exit_code} ({len(failed)} failed)")
     summary = "\n".join(lines)
     print(summary)
