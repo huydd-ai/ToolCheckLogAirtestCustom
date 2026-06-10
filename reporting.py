@@ -36,7 +36,17 @@ def _normalize_and_filter_airtest_log(log_path: Path, mode: str) -> None:
         entries: list[dict] = []
         depths: list[int] = []
         
-        for ln in raw_lines:
+        # Pass 1: find error indices
+        error_indices = set()
+        for i, ln in enumerate(raw_lines):
+            try:
+                obj = json.loads(ln)
+                if obj.get("data", {}).get("traceback") is not None:
+                    error_indices.add(i)
+            except json.JSONDecodeError:
+                pass
+        
+        for i, ln in enumerate(raw_lines):
             ln = ln.strip()
             if not ln:
                 continue
@@ -52,7 +62,9 @@ def _normalize_and_filter_airtest_log(log_path: Path, mode: str) -> None:
             if mode == "dev":
                 has_error = data_dict.get("traceback") is not None
                 if tag == "function" and not has_error:
-                    continue
+                    # Keep if it is within 4 lines before an error to preserve crash screenshots
+                    if not any(e in error_indices for e in range(i, i+5)):
+                        continue
                     
             entries.append(obj)
             d = obj.get("depth")
@@ -81,17 +93,25 @@ def generate_html(air_path: Path, out_dir: Path, mode: str, ndjson_name: str = "
 
         _normalize_and_filter_airtest_log(out_dir / ndjson_name, mode)
 
-        recordings = recordings or []
-        record_list = [str(p) for p in recordings if p.exists()]
+        exported = out_dir / f"{air_path.stem}.log"
+        exported.mkdir(parents=True, exist_ok=True)
+        
+        rel_recordings = []
+        if recordings:
+            import shutil
+            for r in recordings:
+                if r.exists():
+                    shutil.copy2(r, exported / r.name)
+                    rel_recordings.append(r.name)
 
         log_to_html = LogToHtml(
             script_root=str(air_path),
             log_root=str(out_dir),
             logfile=ndjson_name,
-            export_dir=str(out_dir),
+            export_dir=str(exported),
             lang="en",
         )
-        log_to_html.report(output_file="report.html", record_list=record_list)
+        log_to_html.report(output_file="report.html", record_list=rel_recordings)
 
         exported = out_dir / f"{air_path.stem}.log"
         target_report = exported / "report.html"
