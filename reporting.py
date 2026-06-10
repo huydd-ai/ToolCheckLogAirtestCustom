@@ -46,30 +46,50 @@ def _normalize_and_filter_airtest_log(log_path: Path, mode: str) -> None:
             except json.JSONDecodeError:
                 pass
         
+        pending_screen = None
         for i, ln in enumerate(raw_lines):
             ln = ln.strip()
             if not ln:
                 continue
             try:
                 obj = json.loads(ln)
+                data_dict = obj.get("data", {})
+                tag = obj.get("tag")
+                
+                # Intercept annotated error screenshots
+                if data_dict.get("name") == "Take Screen and Log":
+                    data_dict["name"] = "try_log_screen"
+                    data_dict["call_args"] = {"screen": None, "quality": None, "max_size": None}
+                    data_dict["start_time"] = obj["time"]
+                    data_dict["end_time"] = obj["time"]
+                    pending_screen = obj
+                    continue
+
+                # Dev mode filters out game step noise
+                if mode == "dev":
+                    has_error = data_dict.get("traceback") is not None
+                    if tag == "function" and not has_error:
+                        # Keep if it is near an error to preserve crash screenshots
+                        if not any(e in error_indices for e in range(i-2, i+5)):
+                            continue
+                            
+                entries.append(obj)
+                d = obj.get("depth")
+                if isinstance(d, int):
+                    depths.append(d)
+                    
+                # If we just appended an error log, append the pending annotated screen as its child
+                if pending_screen and data_dict.get("traceback") is not None:
+                    entries.append(pending_screen)
+                    depths.append(pending_screen.get("depth", 2))
+                    pending_screen = None
+                    
             except json.JSONDecodeError:
                 continue
                 
-            data_dict = obj.get("data", {})
-            tag = obj.get("tag", "")
-            
-            # Dev mode filters out game step noise
-            if mode == "dev":
-                has_error = data_dict.get("traceback") is not None
-                if tag == "function" and not has_error:
-                    # Keep if it is near an error to preserve crash screenshots
-                    if not any(e in error_indices for e in range(i-2, i+5)):
-                        continue
-                    
-            entries.append(obj)
-            d = obj.get("depth")
-            if isinstance(d, int):
-                depths.append(d)
+        if pending_screen:
+            entries.append(pending_screen)
+            depths.append(pending_screen.get("depth", 2))
                 
         if not depths:
             log_path.write_text("\n".join(json.dumps(o, ensure_ascii=False) for o in entries) + "\n", encoding="utf-8")
