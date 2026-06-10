@@ -62,8 +62,8 @@ def _normalize_and_filter_airtest_log(log_path: Path, mode: str) -> None:
             if mode == "dev":
                 has_error = data_dict.get("traceback") is not None
                 if tag == "function" and not has_error:
-                    # Keep if it is within 4 lines before an error to preserve crash screenshots
-                    if not any(e in error_indices for e in range(i, i+5)):
+                    # Keep if it is near an error to preserve crash screenshots
+                    if not any(e in error_indices for e in range(i-2, i+5)):
                         continue
                     
             entries.append(obj)
