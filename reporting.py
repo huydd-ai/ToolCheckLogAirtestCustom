@@ -93,22 +93,13 @@ def generate_html(air_path: Path, out_dir: Path, mode: str, ndjson_name: str = "
 
         _normalize_and_filter_airtest_log(out_dir / ndjson_name, mode)
 
-        exported = out_dir / f"{air_path.stem}.log"
-        exported.mkdir(parents=True, exist_ok=True)
-        
-        rel_recordings = []
-        if recordings:
-            import shutil
-            for r in recordings:
-                if r.exists():
-                    shutil.copy2(r, exported / r.name)
-                    rel_recordings.append(r.name)
+        rel_recordings = [r.name for r in (recordings or []) if r.exists()]
 
         log_to_html = LogToHtml(
             script_root=str(air_path),
             log_root=str(out_dir),
             logfile=ndjson_name,
-            export_dir=str(exported),
+            export_dir=str(out_dir),
             lang="en",
         )
         log_to_html.report(output_file="report.html", record_list=rel_recordings)
