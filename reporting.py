@@ -63,6 +63,28 @@ def _normalize_and_filter_airtest_log(log_path: Path, mode: str) -> None:
                     data_dict["start_time"] = obj["time"]
                     data_dict["end_time"] = obj["time"]
                     pending_screen = obj
+                    
+                    # Redraw the point in the middle of the screen
+                    fname = data_dict.get("ret", {}).get("screen")
+                    if fname:
+                        img_path = log_path.parent / fname
+                        if img_path.exists():
+                            try:
+                                import cv2
+                                import numpy as np
+                                img = cv2.imread(str(img_path))
+                                if img is not None:
+                                    # Erase existing red circle
+                                    red_mask = ((img[:,:,2] > 150) & (img[:,:,1] < 50) & (img[:,:,0] < 50)).astype(np.uint8) * 255
+                                    red_mask = cv2.dilate(red_mask, np.ones((3,3), np.uint8), iterations=1)
+                                    img = cv2.inpaint(img, red_mask, 3, cv2.INPAINT_TELEA)
+                                    # Draw new circle in the middle
+                                    h, w = img.shape[:2]
+                                    cv2.circle(img, (w//2, h//2), 30, (0, 0, 255), 3)
+                                    cv2.circle(img, (w//2, h//2), 5, (0, 0, 255), -1)
+                                    cv2.imwrite(str(img_path), img)
+                            except Exception:
+                                pass
                     continue
 
                 # Dev mode filters out game step noise
