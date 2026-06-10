@@ -45,13 +45,13 @@ def _normalize_and_filter_airtest_log(log_path: Path, mode: str) -> None:
             except json.JSONDecodeError:
                 continue
                 
-            name = obj.get("name", "")
+            data_dict = obj.get("data", {})
+            tag = obj.get("tag", "")
             
             # Dev mode filters out game step noise
             if mode == "dev":
-                is_noisy = name in ["snapshot", "try_log_screen", "touch", "wait", "exists", "swipe", "sleep", "function"]
-                has_error = obj.get("traceback") is not None
-                if is_noisy and not has_error:
+                has_error = data_dict.get("traceback") is not None
+                if tag == "function" and not has_error:
                     continue
                     
             entries.append(obj)
