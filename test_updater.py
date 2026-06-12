@@ -75,3 +75,56 @@ def test_check_and_update_warns_when_git_missing(monkeypatch, repo_root, capsys)
     updater.check_and_update(repo_root, is_parallel_child=False)
 
     assert "rev-parse failed" in capsys.readouterr().err
+def test_check_and_update_warns_on_fetch_timeout(monkeypatch, repo_root, capsys):
+    monkeypatch.delenv("DAGSTER_NO_UPDATE", raising=False)
+
+    def fake_run(args, **kwargs):
+        if args[1] == "rev-parse":
+            return _ok(stdout="main\n")
+        if args[1] == "fetch":
+            raise subprocess.TimeoutExpired(cmd=args, timeout=15)
+        raise AssertionError(f"unexpected call: {args}")
+
+    monkeypatch.setattr(updater.subprocess, "run", fake_run)
+    updater.check_and_update(repo_root, is_parallel_child=False)
+
+    assert "fetch failed" in capsys.readouterr().err
+
+
+def test_check_and_update_warns_on_fetch_nonzero_exit(monkeypatch, repo_root, capsys):
+    monkeypatch.delenv("DAGSTER_NO_UPDATE", raising=False)
+
+    def fake_run(args, **kwargs):
+        if args[1] == "rev-parse":
+            return _ok(stdout="main\n")
+        if args[1] == "fetch":
+            raise subprocess.CalledProcessError(returncode=128, cmd=args, stderr="auth failed")
+        raise AssertionError(f"unexpected call: {args}")
+
+    monkeypatch.setattr(updater.subprocess, "run", fake_run)
+    updater.check_and_update(repo_root, is_parallel_child=False)
+
+    assert "fetch failed" in capsys.readouterr().err
+
+
+def test_check_and_update_noop_when_already_up_to_date(monkeypatch, repo_root, capsys):
+    monkeypatch.delenv("DAGSTER_NO_UPDATE", raising=False)
+    calls: list = []
+
+    def fake_run(args, **kwargs):
+        calls.append(args)
+        if args[1] == "rev-parse":
+            return _ok(stdout="main\n")
+        if args[1] == "fetch":
+            return _ok()
+        if args[1] == "rev-list":
+            return _ok(stdout="0\n")
+        raise AssertionError(f"unexpected call: {args}")
+
+    monkeypatch.setattr(updater.subprocess, "run", fake_run)
+    updater.check_and_update(repo_root, is_parallel_child=False)
+
+    op_names = [c[1] for c in calls]
+    assert op_names == ["rev-parse", "fetch", "rev-list"]
+    assert "already up to date" in capsys.readouterr().err
+

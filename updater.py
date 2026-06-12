@@ -48,6 +48,44 @@ def _current_branch(repo_root: Path) -> str | None:
     return branch
 
 
+def _fetch(repo_root: Path, branch: str) -> bool:
+    """Return True on successful fetch; False otherwise (warning already logged)."""
+    try:
+        subprocess.run(
+            ["git", "fetch", "origin", branch],
+            cwd=repo_root,
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=True,
+        )
+        return True
+    except (subprocess.TimeoutExpired, subprocess.CalledProcessError, FileNotFoundError, OSError) as e:
+        print(f"[WARN] update: fetch failed: {e}", file=sys.stderr)
+        return False
+
+
+def _commits_behind(repo_root: Path, branch: str) -> int | None:
+    """Return commits HEAD is behind origin/<branch>, or None on error."""
+    try:
+        result = subprocess.run(
+            ["git", "rev-list", "--count", f"HEAD..origin/{branch}"],
+            cwd=repo_root,
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=True,
+        )
+    except (subprocess.TimeoutExpired, subprocess.CalledProcessError, FileNotFoundError, OSError) as e:
+        print(f"[WARN] update: rev-list failed: {e}", file=sys.stderr)
+        return None
+    try:
+        return int(result.stdout.strip())
+    except ValueError:
+        print(f"[WARN] update: rev-list returned non-integer: {result.stdout!r}", file=sys.stderr)
+        return None
+
+
 def check_and_update(repo_root: Path, is_parallel_child: bool) -> None:
     """Pull the latest dagster/ code from origin. Best-effort, never raises."""
     if is_parallel_child:
@@ -55,11 +93,17 @@ def check_and_update(repo_root: Path, is_parallel_child: bool) -> None:
     if _is_opted_out(repo_root):
         print("[INFO] update: opt-out", file=sys.stderr)
         return
-        
     branch = _current_branch(repo_root)
-    if not branch:
+    if branch is None:
         print("[WARN] update: detached HEAD or unknown branch, skipping", file=sys.stderr)
         return
-        
-    # Network/git steps land in later tasks
+    if not _fetch(repo_root, branch):
+        return
+    behind = _commits_behind(repo_root, branch)
+    if behind is None:
+        return
+    if behind == 0:
+        print("[INFO] update: already up to date", file=sys.stderr)
+        return
+    # Fast-forward merge lands in Task 4.
     return
