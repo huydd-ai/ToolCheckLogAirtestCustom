@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
@@ -41,3 +42,44 @@ def extract_status(log_path: Path) -> str:
         return "UNKNOWN"
     m = _STATUS_RE.search(head)
     return m.group(1) if m else "UNKNOWN"
+
+
+@dataclass(frozen=True)
+class RunEntry:
+    stem: str
+    when: datetime
+    status: str
+    folder: str
+    report_href: str
+
+
+def scan_runs(report_root: Path) -> list[RunEntry]:
+    """Find run folders under `report_root` that have a finished `log.txt`.
+
+    In-progress runs (no log.txt yet) and unrelated folders (`_parallel_*`,
+    arbitrary dirs) are skipped silently.
+    """
+    if not report_root.exists():
+        return []
+    entries: list[RunEntry] = []
+    for child in report_root.iterdir():
+        if not child.is_dir():
+            continue
+        parsed = parse_run_folder_name(child.name)
+        if parsed is None:
+            continue
+        log_path = child / "log.txt"
+        if not log_path.exists():
+            continue
+        stem, when = parsed
+        status = extract_status(log_path)
+        entries.append(
+            RunEntry(
+                stem=stem,
+                when=when,
+                status=status,
+                folder=child.name,
+                report_href=f"{child.name}/report.html",
+            )
+        )
+    return entries
