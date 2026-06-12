@@ -3,3 +3,6 @@ __pycache__/
 *.pyc
 *.pyo
 .env
+
+# Self-update opt-out marker (per-machine, never committed)
+.no-update

@@ -27,6 +27,8 @@ Run from the **host project root** (the parent of this dir), so `pixon` imports 
 
 **Auto multi-device parallelism:** with no `--device`, the runner enumerates connected ADB devices (`parallel_utils.list_devices`). With **≥2 devices** it splits the flows into balanced contiguous chunks (`parallel_utils.partition`, one chunk per device, fixed assignment) and spawns **one child process per device** (`_run_parallel` re-invokes this script with `--device <serial>` + that device's slice). Output streams live, each line prefixed `[serial]`; a combined summary is printed and written to `report_run/_parallel_<ts>/summary.txt`; the process exits non-zero if any flow failed. With **exactly 1 device** (or an explicit `--device`) it falls through to a single in-process sequential run. `--shard-total`/`--shard-index` still work and take precedence over auto-parallel.
 
+**Self-update:** every invocation begins with a best-effort `git pull --ff-only` of `dagster/` from `origin/<current-branch>` (see `updater.py`). Opt out on dev boxes with `DAGSTER_NO_UPDATE=1` or by touching `dagster/.no-update`. Failures warn but never block the run.
+
 ```
 # single test
 python dagster/dagster_run.py Test/<Suite>/<tcNN_name>.air

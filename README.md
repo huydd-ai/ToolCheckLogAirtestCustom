@@ -50,6 +50,17 @@ Output lands in `report_run/<test_stem>_<timestamp>/`:
 - `report.html` — Airtest native HTML report
 - `recording_<device>_<test>.mp4` — scrcpy capture
 
+### Self-update
+
+Each invocation of `dagster_run.py` starts with a best-effort `git pull --ff-only` against `origin/<current-branch>`. Test machines stay current automatically; the run continues even if the pull fails (network down, missing git binary, non-fast-forward).
+
+To disable the auto-update on a dev machine, do **either** of:
+
+- Set the environment variable `DAGSTER_NO_UPDATE=1`, **or**
+- Create an empty file `dagster/.no-update` (gitignored).
+
+Parallel multi-device runs only pull in the parent process; children invoked with `--device <serial>` skip the update so that N devices do not trigger N concurrent pulls.
+
 ## Limitations
 
 - Sequential test execution only (global `_steps` list, not thread-safe).
