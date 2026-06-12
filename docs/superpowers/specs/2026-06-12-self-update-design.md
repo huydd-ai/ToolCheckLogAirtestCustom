@@ -31,8 +31,10 @@ Called as the first statement of `dagster_run.py:main()`, before any `pixon` imp
 
 **Self-contained.** Imports only `subprocess`, `os`, `pathlib`, `sys`. No dependency on `pixon`, no dependency on other dagster modules. Two reasons:
 
-1. The update pulls *new* versions of `runner.py`, `reporting.py`, `aggregate_report.py`, etc. The function that triggers the pull cannot have already imported them — Python caches modules at first import.
+1. The update pulls *new* versions of `runner.py`, `reporting.py`, `aggregate_report.py`, etc. By keeping `updater.py` import-free, it never holds a stale reference to sibling code it might need to re-read.
 2. If `updater.py` itself ships a bug, the impact is contained to this one file's import path.
+
+**Next-invocation semantic.** `dagster_run.py` imports `runner`, `reporting`, etc. at module load — before `main()` runs. By the time `check_and_update()` pulls new code, those modules are already cached in `sys.modules`. Therefore *the pulled changes take effect on the next invocation of `dagster_run.py`, not the current one*. This is acceptable: test machines run many invocations per day, so the lag is at most one run. The alternative (deferring all imports until after the update) would be a wider refactor than this feature warrants.
 
 **Parent-only execution.** When `_run_parallel` (or any future orchestrator) re-invokes `dagster_run.py` with `--device <serial>`, the child skips the update. This is encoded as `is_parallel_child = "--device" in sys.argv`. The parent process pulls once, then children inherit the updated checkout.
 
