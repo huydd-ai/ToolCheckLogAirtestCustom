@@ -156,3 +156,19 @@ def render_html(groups: list[tuple[str, list[RunEntry]]]) -> str:
         parts.append("</ul></details>")
     parts.append("</body></html>")
     return "\n".join(parts)
+
+
+def regenerate_global_report(report_root: Path) -> Path:
+    """Scan `report_root` for test runs and (re)write `report_root/report.html`.
+
+    Creates `report_root` if missing. Returns path to the written file.
+    Never raises on individual-run parse errors - entries with unreadable logs
+    are still listed with status UNKNOWN.
+    """
+    report_root.mkdir(parents=True, exist_ok=True)
+    entries = scan_runs(report_root)
+    groups = group_by_date(entries)
+    html = render_html(groups)
+    out = report_root / "report.html"
+    out.write_text(html, encoding="utf-8")
+    return out

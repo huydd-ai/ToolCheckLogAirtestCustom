@@ -8,6 +8,7 @@ from aggregate_report import (
     scan_runs,
     group_by_date,
     render_html,
+    regenerate_global_report,
 )
 
 
@@ -210,3 +211,31 @@ def test_render_html_escapes_stem():
     html = render_html(group_by_date(entries))
     assert "<script>" not in html
     assert "&lt;script&gt;" in html
+
+
+def test_regenerate_writes_report_html(tmp_path):
+    _make_run(tmp_path, "tc01_foo_20260612_102041", "# Status: PASS")
+    out = regenerate_global_report(tmp_path)
+    assert out == tmp_path / "report.html"
+    assert out.exists()
+    assert "tc01_foo" in out.read_text(encoding="utf-8")
+
+
+def test_regenerate_overwrites_existing(tmp_path):
+    (tmp_path / "report.html").write_text("OLD", encoding="utf-8")
+    _make_run(tmp_path, "tc01_foo_20260612_102041", "# Status: PASS")
+    regenerate_global_report(tmp_path)
+    assert "OLD" not in (tmp_path / "report.html").read_text(encoding="utf-8")
+
+
+def test_regenerate_empty_root_writes_empty_state(tmp_path):
+    out = regenerate_global_report(tmp_path)
+    assert out.exists()
+    assert "No test runs found" in out.read_text(encoding="utf-8")
+
+
+def test_regenerate_creates_root_if_missing(tmp_path):
+    target = tmp_path / "report_run"
+    out = regenerate_global_report(target)
+    assert out.exists()
+    assert target.exists()
