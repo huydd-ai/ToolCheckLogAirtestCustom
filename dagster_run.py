@@ -29,7 +29,13 @@ from dagster.step_capture import patch_run_step
 from dagster.aggregate_report import regenerate_global_report
 
 def main():
-    # 1. Setup Environment & Capture Hooks
+    # 1a. Self-update from origin (best-effort, never blocks the run).
+    # Parent-only: when --device <serial> is in argv we are a parallel child
+    # and the parent already pulled - skip to avoid concurrent `git pull`.
+    from dagster.updater import check_and_update
+    check_and_update(repo_root=_dagster_dir, is_parallel_child=("--device" in sys.argv))
+
+    # 1b. Setup Environment & Capture Hooks
     setup_console_logging(LOG_LEVEL)
     patch_run_step()
 
