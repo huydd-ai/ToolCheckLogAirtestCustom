@@ -63,6 +63,12 @@ def run_single_test(air_path: Path, mode: str, device_id: str, report_root: Path
         except Exception:
             pass
 
+        # Compute final status once from captured steps; covers the case where
+        # main() completed without exception but individual steps still failed.
+        steps = get_steps()
+        if status == "PASS" and any(s["status"] == "FAIL" for s in steps):
+            status = "FAIL"
+
         try:
             recordings = sorted(out_dir.glob("recording_*.mp4"))
             generate_html(air_path, out_dir, mode, ndjson_name="airtest.log", recordings=recordings)
@@ -70,17 +76,13 @@ def run_single_test(air_path: Path, mode: str, device_id: str, report_root: Path
         except Exception as e:
             print(f"[WARN] Failed to generate report: {e}", file=sys.stderr)
 
-        if mode == "tester":
-            try:
-                write_log_txt(out_dir, air_path.stem, get_steps(), error_top)
-                print(f"[INFO] log.txt written with {len(get_steps())} steps")
-            except Exception as e:
-                print(f"[WARN] Failed to write log.txt: {e}", file=sys.stderr)
+        try:
+            write_log_txt(out_dir, air_path.stem, steps, error_top)
+            print(f"[INFO] log.txt written with {len(steps)} steps")
+        except Exception as e:
+            print(f"[WARN] Failed to write log.txt: {e}", file=sys.stderr)
 
         print(f"Report: {out_dir}")
-        if status == "PASS" and any(s["status"] == "FAIL" for s in get_steps()):
-            status = "FAIL"
-            
         print(f"[RESULT]\t{module_name}\t{status}\t{out_dir}")
 
     return status == "FAIL"
