@@ -83,3 +83,17 @@ def scan_runs(report_root: Path) -> list[RunEntry]:
             )
         )
     return entries
+
+
+def group_by_date(entries: list[RunEntry]) -> list[tuple[str, list[RunEntry]]]:
+    """Group entries by ISO date string (YYYY-MM-DD).
+
+    Outer list ordered by date DESC. Inner lists ordered by datetime DESC.
+    """
+    by_date: dict[str, list[RunEntry]] = {}
+    for e in entries:
+        key = e.when.strftime("%Y-%m-%d")
+        by_date.setdefault(key, []).append(e)
+    for rows in by_date.values():
+        rows.sort(key=lambda r: r.when, reverse=True)
+    return sorted(by_date.items(), key=lambda kv: kv[0], reverse=True)

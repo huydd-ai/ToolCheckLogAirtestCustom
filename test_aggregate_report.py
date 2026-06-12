@@ -1,7 +1,13 @@
 from datetime import datetime
 from pathlib import Path
 
-from aggregate_report import parse_run_folder_name, extract_status, RunEntry, scan_runs
+from aggregate_report import (
+    parse_run_folder_name,
+    extract_status,
+    RunEntry,
+    scan_runs,
+    group_by_date,
+)
 
 
 def test_parse_simple_stem():
@@ -112,3 +118,35 @@ def test_scan_runs_relative_report_path(tmp_path):
 
 def test_scan_runs_empty_root(tmp_path):
     assert scan_runs(tmp_path) == []
+
+
+def _entry(stem: str, dt_str: str, status: str) -> RunEntry:
+    dt = datetime.strptime(dt_str, "%Y-%m-%d %H:%M:%S")
+    folder = f"{stem}_{dt.strftime('%Y%m%d_%H%M%S')}"
+    return RunEntry(stem, dt, status, folder, f"{folder}/report.html")
+
+
+def test_group_by_date_dates_sorted_descending():
+    entries = [
+        _entry("a", "2026-06-10 10:00:00", "PASS"),
+        _entry("b", "2026-06-12 10:00:00", "PASS"),
+        _entry("c", "2026-06-11 10:00:00", "PASS"),
+    ]
+    groups = group_by_date(entries)
+    assert [d for d, _ in groups] == ["2026-06-12", "2026-06-11", "2026-06-10"]
+
+
+def test_group_by_date_within_group_sorted_newest_first():
+    entries = [
+        _entry("a", "2026-06-12 09:00:00", "PASS"),
+        _entry("b", "2026-06-12 11:30:00", "FAIL"),
+        _entry("c", "2026-06-12 10:00:00", "PASS"),
+    ]
+    groups = group_by_date(entries)
+    assert len(groups) == 1
+    _, rows = groups[0]
+    assert [r.stem for r in rows] == ["b", "c", "a"]
+
+
+def test_group_by_date_empty():
+    assert group_by_date([]) == []
