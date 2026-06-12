@@ -184,3 +184,21 @@ def test_normalize_pending_screen_appended_at_end_when_no_error_follows(tmp_path
     names = [e["data"]["name"] for e in result]
     assert "normal_step" in names
     assert "try_log_screen" in names
+
+
+import importlib
+import sys
+
+def test_generate_html_propagates_exception_on_missing_airtest(tmp_path, monkeypatch):
+    """generate_html should raise when LogToHtml import fails — caller handles it."""
+    # Simulate airtest.report.report not importable
+    monkeypatch.setitem(sys.modules, "airtest.report.report", None)
+
+    from reporting import generate_html
+
+    air_path = tmp_path / "tc01.air"
+    air_path.mkdir()
+
+    import pytest
+    with pytest.raises(Exception):
+        generate_html(air_path, tmp_path, "tester")

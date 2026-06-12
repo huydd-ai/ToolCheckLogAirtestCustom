@@ -130,34 +130,31 @@ def _normalize_and_filter_airtest_log(log_path: Path, mode: str) -> None:
 
 def generate_html(air_path: Path, out_dir: Path, mode: str, ndjson_name: str = "airtest.log", recordings: list[Path] | None = None) -> None:
     """Generate Airtest HTML report from NDJSON log."""
-    try:
-        from airtest.report.report import LogToHtml
+    from airtest.report.report import LogToHtml
 
-        _normalize_and_filter_airtest_log(out_dir / ndjson_name, mode)
+    _normalize_and_filter_airtest_log(out_dir / ndjson_name, mode)
 
-        rel_recordings = [r.name for r in (recordings or []) if r.exists()]
+    rel_recordings = [r.name for r in (recordings or []) if r.exists()]
 
-        log_to_html = LogToHtml(
-            script_root=str(air_path),
-            log_root=str(out_dir),
-            logfile=ndjson_name,
-            export_dir=str(out_dir),
-            lang="en",
+    log_to_html = LogToHtml(
+        script_root=str(air_path),
+        log_root=str(out_dir),
+        logfile=ndjson_name,
+        export_dir=str(out_dir),
+        lang="en",
+    )
+    log_to_html.report(output_file="report.html", record_list=rel_recordings)
+
+    exported = out_dir / f"{air_path.stem}.log"
+    target_report = exported / "report.html"
+    if not target_report.exists():
+        target_report = exported / "log.html"
+    if target_report.exists():
+        redirect_rel = f"{exported.name}/{target_report.name}"
+        (out_dir / "report.html").write_text(
+            "<!DOCTYPE html><meta charset=\"utf-8\">"
+            f"<meta http-equiv=\"refresh\" content=\"0; url={redirect_rel}\">"
+            "<title>Redirecting...</title>"
+            f"<p>If you are not redirected, <a href=\"{redirect_rel}\">click here</a>.</p>",
+            encoding="utf-8",
         )
-        log_to_html.report(output_file="report.html", record_list=rel_recordings)
-
-        exported = out_dir / f"{air_path.stem}.log"
-        target_report = exported / "report.html"
-        if not target_report.exists():
-            target_report = exported / "log.html"
-        if target_report.exists():
-            redirect_rel = f"{exported.name}/{target_report.name}"
-            (out_dir / "report.html").write_text(
-                "<!DOCTYPE html><meta charset=\"utf-8\">"
-                f"<meta http-equiv=\"refresh\" content=\"0; url={redirect_rel}\">"
-                "<title>Redirecting...</title>"
-                f"<p>If you are not redirected, <a href=\"{redirect_rel}\">click here</a>.</p>",
-                encoding="utf-8",
-            )
-    except Exception as e:
-        print(f"[WARN] Failed to generate HTML report: {e}", file=sys.stderr)
