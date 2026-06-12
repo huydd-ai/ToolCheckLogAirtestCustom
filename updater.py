@@ -86,6 +86,23 @@ def _commits_behind(repo_root: Path, branch: str) -> int | None:
         return None
 
 
+def _pull_ff(repo_root: Path, branch: str) -> bool:
+    """Return True on successful fast-forward merge; False otherwise (warning already logged)."""
+    try:
+        subprocess.run(
+            ["git", "merge", "--ff-only", f"origin/{branch}"],
+            cwd=repo_root,
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=True,
+        )
+        return True
+    except (subprocess.TimeoutExpired, subprocess.CalledProcessError, FileNotFoundError, OSError) as e:
+        print(f"[WARN] update: pull failed: {e}", file=sys.stderr)
+        return False
+
+
 def check_and_update(repo_root: Path, is_parallel_child: bool) -> None:
     """Pull the latest dagster/ code from origin. Best-effort, never raises."""
     if is_parallel_child:
@@ -105,5 +122,6 @@ def check_and_update(repo_root: Path, is_parallel_child: bool) -> None:
     if behind == 0:
         print("[INFO] update: already up to date", file=sys.stderr)
         return
-    # Fast-forward merge lands in Task 4.
+    if _pull_ff(repo_root, branch):
+        print(f"[INFO] update: pulled {behind} commits on {branch}", file=sys.stderr)
     return
