@@ -28,6 +28,26 @@ def _is_opted_out(repo_root: Path) -> bool:
     return False
 
 
+def _current_branch(repo_root: Path) -> str | None:
+    """Return the currently checked-out branch, or None on detached HEAD / error."""
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+            cwd=repo_root,
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=True,
+        )
+    except (subprocess.TimeoutExpired, subprocess.CalledProcessError, FileNotFoundError, OSError) as e:
+        print(f"[WARN] update: rev-parse failed: {e}", file=sys.stderr)
+        return None
+    branch = result.stdout.strip()
+    if branch == "HEAD" or not branch:
+        return None
+    return branch
+
+
 def check_and_update(repo_root: Path, is_parallel_child: bool) -> None:
     """Pull the latest dagster/ code from origin. Best-effort, never raises."""
     if is_parallel_child:
@@ -35,6 +55,11 @@ def check_and_update(repo_root: Path, is_parallel_child: bool) -> None:
     if _is_opted_out(repo_root):
         print("[INFO] update: opt-out", file=sys.stderr)
         return
-    # Network/git steps land in later tasks; for now stop here so the
-    # opt-out tests pass without invoking subprocess.
+        
+    branch = _current_branch(repo_root)
+    if not branch:
+        print("[WARN] update: detached HEAD or unknown branch, skipping", file=sys.stderr)
+        return
+        
+    # Network/git steps land in later tasks
     return

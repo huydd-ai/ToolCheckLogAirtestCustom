@@ -47,3 +47,31 @@ def test_check_and_update_skips_when_marker_file_present(monkeypatch, repo_root)
     )
     updater.check_and_update(repo_root, is_parallel_child=False)
     assert calls == []
+
+
+def test_check_and_update_skips_on_detached_head(monkeypatch, repo_root, capsys):
+    monkeypatch.delenv("DAGSTER_NO_UPDATE", raising=False)
+    calls: list = []
+
+    def fake_run(args, **kwargs):
+        calls.append(args)
+        return _ok(stdout="HEAD\n")  # detached HEAD sentinel
+
+    monkeypatch.setattr(updater.subprocess, "run", fake_run)
+    updater.check_and_update(repo_root, is_parallel_child=False)
+
+    assert len(calls) == 1
+    assert calls[0][:3] == ["git", "rev-parse", "--abbrev-ref"]
+    assert "detached" in capsys.readouterr().err.lower()
+
+
+def test_check_and_update_warns_when_git_missing(monkeypatch, repo_root, capsys):
+    monkeypatch.delenv("DAGSTER_NO_UPDATE", raising=False)
+
+    def fake_run(*a, **k):
+        raise FileNotFoundError("git not found")
+
+    monkeypatch.setattr(updater.subprocess, "run", fake_run)
+    updater.check_and_update(repo_root, is_parallel_child=False)
+
+    assert "rev-parse failed" in capsys.readouterr().err
