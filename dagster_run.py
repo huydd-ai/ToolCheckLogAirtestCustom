@@ -26,6 +26,7 @@ from airtest.core.api import connect_device, init_device, G
 from dagster.log_utils import setup_console_logging, LOG_LEVEL
 from dagster.runner import run_single_test
 from dagster.step_capture import patch_run_step
+from dagster.aggregate_report import regenerate_global_report
 
 def main():
     # 1. Setup Environment & Capture Hooks
@@ -97,6 +98,13 @@ def main():
         failed = run_single_test(air_path, args.mode, device_id, report_root, scrcpy_path)
         if failed:
             run_had_failure = True
+
+    # 6b. Regenerate global aggregated report
+    try:
+        out = regenerate_global_report(report_root)
+        print(f"[INFO] global report: {out}")
+    except Exception as e:
+        print(f"[WARN] global report generation failed: {e}", file=sys.stderr)
 
     # 7. Teardown
     try:
