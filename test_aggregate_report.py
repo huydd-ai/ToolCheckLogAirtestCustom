@@ -7,6 +7,7 @@ from aggregate_report import (
     RunEntry,
     scan_runs,
     group_by_date,
+    render_html,
 )
 
 
@@ -150,3 +151,62 @@ def test_group_by_date_within_group_sorted_newest_first():
 
 def test_group_by_date_empty():
     assert group_by_date([]) == []
+
+
+def test_render_html_contains_doctype_and_title():
+    html = render_html([])
+    assert html.startswith("<!DOCTYPE html>")
+    assert "<title>Dagster Test Reports</title>" in html
+
+
+def test_render_html_empty_state():
+    html = render_html([])
+    assert "No test runs found" in html
+
+
+def test_render_html_group_header_has_counts():
+    entries = [
+        _entry("a", "2026-06-12 10:00:00", "PASS"),
+        _entry("b", "2026-06-12 11:00:00", "FAIL"),
+        _entry("c", "2026-06-12 09:00:00", "PASS"),
+    ]
+    html = render_html(group_by_date(entries))
+    assert "2026-06-12" in html
+    assert "2 PASS" in html
+    assert "1 FAIL" in html
+
+
+def test_render_html_today_open_past_collapsed():
+    from datetime import date
+    today = date.today().strftime("%Y-%m-%d")
+    yesterday_entries = [_entry("a", "2020-01-01 10:00:00", "PASS")]
+    today_entries = [_entry("b", datetime.now().strftime("%Y-%m-%d 10:00:00"), "PASS")]
+    html = render_html(group_by_date(today_entries + yesterday_entries))
+    assert f"<details open><summary>{today}" in html
+    assert "<details><summary>2020-01-01" in html
+
+
+def test_render_html_row_links_to_report():
+    entries = [_entry("tc01_foo", "2026-06-12 10:20:41", "PASS")]
+    html = render_html(group_by_date(entries))
+    assert 'href="tc01_foo_20260612_102041/report.html"' in html
+    assert "tc01_foo" in html
+
+
+def test_render_html_status_badge_classes():
+    entries = [
+        _entry("a", "2026-06-12 10:00:00", "PASS"),
+        _entry("b", "2026-06-12 11:00:00", "FAIL"),
+        _entry("c", "2026-06-12 09:00:00", "SKIP"),
+    ]
+    html = render_html(group_by_date(entries))
+    assert 'class="badge pass">PASS<' in html
+    assert 'class="badge fail">FAIL<' in html
+    assert 'class="badge skip">SKIP<' in html
+
+
+def test_render_html_escapes_stem():
+    entries = [_entry("tc01_<script>", "2026-06-12 10:00:00", "PASS")]
+    html = render_html(group_by_date(entries))
+    assert "<script>" not in html
+    assert "&lt;script&gt;" in html
