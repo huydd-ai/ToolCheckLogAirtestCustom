@@ -7,6 +7,7 @@ from datetime import datetime
 from pathlib import Path
 
 _FOLDER_RE = re.compile(r"^(.+)_(\d{8})_(\d{6})$")
+_STATUS_RE = re.compile(r"^#\s*Status:\s*(PASS|FAIL|SKIP)\b", re.MULTILINE)
 
 
 def parse_run_folder_name(name: str) -> tuple[str, datetime] | None:
@@ -26,3 +27,17 @@ def parse_run_folder_name(name: str) -> tuple[str, datetime] | None:
     if stem.startswith("_"):
         return None
     return stem, dt
+
+
+def extract_status(log_path: Path) -> str:
+    """Return PASS/FAIL/SKIP from a run's `log.txt`, or UNKNOWN if missing.
+
+    Reads only the first ~1 KiB - the header lives on line 3.
+    """
+    try:
+        with log_path.open("r", encoding="utf-8", errors="replace") as f:
+            head = f.read(1024)
+    except OSError:
+        return "UNKNOWN"
+    m = _STATUS_RE.search(head)
+    return m.group(1) if m else "UNKNOWN"
