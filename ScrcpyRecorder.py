@@ -10,8 +10,11 @@ class ScrcpyRecorder:
         self,
         output: str | Path,
         device: str | None = None,
-        max_size: int = 800,
-        bit_rate: str = "500k",
+        max_size: int = 0,
+        bit_rate: str = "8M",
+        max_fps: int = 0,
+        video_codec: str = "h264",
+        turn_screen_off: bool = False,
         stay_awake: bool = True,
         scrcpy_path: str = "scrcpy",
     ):
@@ -19,6 +22,9 @@ class ScrcpyRecorder:
         self.device = device
         self.max_size = max_size
         self.bit_rate = bit_rate
+        self.max_fps = max_fps
+        self.video_codec = video_codec
+        self.turn_screen_off = turn_screen_off
         self.stay_awake = stay_awake
         self.scrcpy_path = scrcpy_path
         self.proc: subprocess.Popen | None = None
@@ -30,10 +36,19 @@ class ScrcpyRecorder:
         cmd = [
             self.scrcpy_path,
             "--record", str(self.output),
-            "--no-window",
-            "--max-size", str(self.max_size),
+            "--no-playback",
             "--video-bit-rate", self.bit_rate,
+            "--video-codec", self.video_codec,
         ]
+
+        if self.max_size > 0:
+            cmd.extend(["--max-size", str(self.max_size)])
+
+        if self.max_fps > 0:
+            cmd.extend(["--max-fps", str(self.max_fps)])
+
+        if self.turn_screen_off:
+            cmd.append("--turn-screen-off")
 
         if self.stay_awake:
             cmd.append("--stay-awake")
