@@ -38,14 +38,12 @@ class ScrcpyRecorder:
             "--record", str(self.output),
             "--no-playback",
             "--video-bit-rate", self.bit_rate,
+            "--max-fps", str(self.max_fps),
             "--video-codec", self.video_codec,
         ]
 
         if self.max_size > 0:
             cmd.extend(["--max-size", str(self.max_size)])
-
-        if self.max_fps > 0:
-            cmd.extend(["--max-fps", str(self.max_fps)])
 
         if self.turn_screen_off:
             cmd.append("--turn-screen-off")
