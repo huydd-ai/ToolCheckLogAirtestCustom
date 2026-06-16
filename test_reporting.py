@@ -235,6 +235,15 @@ def test_generate_summary_report_banner_shows_fail(tmp_path):
     assert "#ff7b72" in html or "fail" in html.lower()
 
 
+def test_generate_summary_report_banner_shows_skip(tmp_path):
+    from reporting import generate_summary_report
+    path = generate_summary_report(tmp_path, "tc01", [], "SKIP", [], None)
+    html = path.read_text(encoding="utf-8")
+    assert "SKIP" in html
+    assert 'class="banner skip"' in html
+    assert 'class="banner fail"' not in html
+
+
 def test_generate_summary_report_shows_test_name(tmp_path):
     from reporting import generate_summary_report
     path = generate_summary_report(tmp_path, "my_test_case_01", [], "PASS", [], None)

@@ -169,7 +169,7 @@ def generate_summary_report(
     recordings: list[Path],
     error_top: Exception | None = None,
 ) -> Path:
-    status_cls = "pass" if status == "PASS" else "fail"
+    status_cls = {"PASS": "pass", "FAIL": "fail"}.get(status, "skip")
     total = len(steps)
     passed = sum(1 for s in steps if s["status"] == "PASS")
     failed = sum(1 for s in steps if s["status"] == "FAIL")
@@ -185,9 +185,11 @@ body{{background:#0d1117;color:#c9d1d9;font-family:-apple-system,Segoe UI,Roboto
 .banner{{padding:28px 32px 20px;text-align:center}}
 .banner.pass{{background:#0f2d1a;border-bottom:2px solid #2ea043}}
 .banner.fail{{background:#2d0f0f;border-bottom:2px solid #da3633}}
+.banner.skip{{background:#2d2d0f;border-bottom:2px solid #d29922}}
 .banner .status{{font-size:48px;font-weight:800;letter-spacing:2px}}
 .banner .status.pass{{color:#56d364}}
 .banner .status.fail{{color:#ff7b72}}
+.banner .status.skip{{color:#d29922}}
 .banner .meta{{margin-top:8px;font-size:14px;color:#8b949e}}
 .banner .meta span{{margin:0 12px}}
 .banner .rec-badge{{display:inline-block;background:#1c2128;padding:3px 10px;border-radius:10px;font-size:12px;color:#58a6ff;text-decoration:none;margin-top:8px}}
