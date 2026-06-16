@@ -6,7 +6,7 @@ from pathlib import Path
 from airtest.core.api import auto_setup, G
 from airtest.core.settings import Settings as ST
 
-from dagster.reporting import write_log_txt, generate_html
+from dagster.reporting import write_log_txt, generate_html, generate_summary_report
 from dagster.step_capture import clear_steps, get_steps
 
 
@@ -69,12 +69,19 @@ def run_single_test(air_path: Path, mode: str, device_id: str, report_root: Path
         if status == "PASS" and any(s["status"] == "FAIL" for s in steps):
             status = "FAIL"
 
+        recordings = sorted(out_dir.glob("recording_*.mp4"))
+
         try:
-            recordings = sorted(out_dir.glob("recording_*.mp4"))
             generate_html(air_path, out_dir, mode, ndjson_name="airtest.log", recordings=recordings)
             print(f"[INFO] report.html generated")
         except Exception as e:
             print(f"[WARN] Failed to generate report: {e}", file=sys.stderr)
+
+        try:
+            summary_path = generate_summary_report(out_dir, air_path.stem, steps, status, recordings, error_top)
+            print(f"[INFO] summary report: {summary_path.name}")
+        except Exception as e:
+            print(f"[WARN] Failed to generate summary report: {e}", file=sys.stderr)
 
         try:
             write_log_txt(out_dir, air_path.stem, steps, error_top)

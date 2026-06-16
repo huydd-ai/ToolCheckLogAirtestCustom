@@ -297,3 +297,18 @@ def test_generate_summary_report_preserves_html_escaped_names(tmp_path):
     raw = path.read_text(encoding="utf-8")
     assert "<script>alert(1)</script>" not in raw
     assert "&lt;script&gt;alert(1)&lt;/script&gt;" in raw
+
+
+def test_generate_summary_report_called_from_runner_integration(tmp_path):
+    """Verify the function is importable via the dagster.reporting path used by runner.py."""
+    import sys
+    sys.path.insert(0, str(tmp_path))
+    import importlib
+    # Simulate runner's import path
+    from reporting import generate_summary_report
+    steps = []
+    path = generate_summary_report(tmp_path, "tc_integration", steps, "PASS", [], None)
+    assert path.exists()
+    html = path.read_text(encoding="utf-8")
+    assert "PASS" in html
+    assert "tc_integration" in html
