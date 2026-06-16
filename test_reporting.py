@@ -202,3 +202,98 @@ def test_generate_html_propagates_exception_on_missing_airtest(tmp_path, monkeyp
     import pytest
     with pytest.raises(Exception):
         generate_html(air_path, tmp_path, "tester")
+
+
+# ── generate_summary_report ────────────────────────────────────────────────────
+
+import html as _html
+
+
+def test_generate_summary_report_writes_file(tmp_path):
+    from reporting import generate_summary_report
+    steps = [{"name": "s1", "action": "touch", "status": "PASS", "screenshot": None, "behaviour": None, "duration": 1.5}]
+    path = generate_summary_report(tmp_path, "tc01", steps, "PASS", [], None)
+    assert path.exists()
+    assert path.name == "report_summary.html"
+
+
+def test_generate_summary_report_banner_shows_pass(tmp_path):
+    from reporting import generate_summary_report
+    steps = [{"name": "s1", "action": "touch", "status": "PASS", "screenshot": None, "behaviour": None, "duration": 1.5}]
+    path = generate_summary_report(tmp_path, "tc01", steps, "PASS", [], None)
+    html = path.read_text(encoding="utf-8")
+    assert "PASS" in html
+    assert "#56d364" in html or "pass" in html.lower()
+
+
+def test_generate_summary_report_banner_shows_fail(tmp_path):
+    from reporting import generate_summary_report
+    steps = [{"name": "s1", "action": "touch", "status": "FAIL", "screenshot": None, "behaviour": "Error", "duration": 2.0}]
+    path = generate_summary_report(tmp_path, "tc01", steps, "FAIL", [], None)
+    html = path.read_text(encoding="utf-8")
+    assert "FAIL" in html
+    assert "#ff7b72" in html or "fail" in html.lower()
+
+
+def test_generate_summary_report_shows_test_name(tmp_path):
+    from reporting import generate_summary_report
+    path = generate_summary_report(tmp_path, "my_test_case_01", [], "PASS", [], None)
+    html = path.read_text(encoding="utf-8")
+    assert "my_test_case_01" in html
+
+
+def test_generate_summary_report_step_table_renders(tmp_path):
+    from reporting import generate_summary_report
+    steps = [
+        {"name": "step one", "action": "touch", "status": "PASS", "screenshot": None, "behaviour": None, "duration": 1.2},
+        {"name": "step two", "action": "wait", "status": "FAIL", "screenshot": None, "behaviour": "timeout", "duration": 5.0},
+    ]
+    path = generate_summary_report(tmp_path, "tc01", steps, "FAIL", [], None)
+    html = path.read_text(encoding="utf-8")
+    assert "step one" in html
+    assert "step two" in html
+    assert "timeout" in html
+
+
+def test_generate_summary_report_empty_steps(tmp_path):
+    from reporting import generate_summary_report
+    path = generate_summary_report(tmp_path, "tc01", [], "PASS", [], None)
+    html = path.read_text(encoding="utf-8")
+    assert "PASS" in html
+
+
+def test_generate_summary_report_recording_badge_when_present(tmp_path):
+    from reporting import generate_summary_report
+    recording = tmp_path / "recording_device_tc01.mp4"
+    recording.write_text("dummy")
+    path = generate_summary_report(tmp_path, "tc01", [], "PASS", [recording], None)
+    html = path.read_text(encoding="utf-8")
+    assert "recording" in html.lower() or "mp4" in html
+
+
+def test_generate_summary_report_duration_column_present(tmp_path):
+    from reporting import generate_summary_report
+    steps = [{"name": "s1", "action": "touch", "status": "PASS", "screenshot": None, "behaviour": None, "duration": 1.25}]
+    path = generate_summary_report(tmp_path, "tc01", steps, "PASS", [], None)
+    html = path.read_text(encoding="utf-8")
+    assert "1.25" in html or "1.3" in html
+
+
+def test_generate_summary_report_total_duration(tmp_path):
+    from reporting import generate_summary_report
+    steps = [
+        {"name": "s1", "action": "touch", "status": "PASS", "screenshot": None, "behaviour": None, "duration": 1.0},
+        {"name": "s2", "action": "wait", "status": "PASS", "screenshot": None, "behaviour": None, "duration": 2.5},
+    ]
+    path = generate_summary_report(tmp_path, "tc01", steps, "PASS", [], None)
+    html = path.read_text(encoding="utf-8")
+    assert "3.5" in html
+
+
+def test_generate_summary_report_preserves_html_escaped_names(tmp_path):
+    from reporting import generate_summary_report
+    steps = [{"name": "<script>alert(1)</script>", "action": "touch", "status": "PASS", "screenshot": None, "behaviour": None, "duration": 1.0}]
+    path = generate_summary_report(tmp_path, "tc01", steps, "PASS", [], None)
+    raw = path.read_text(encoding="utf-8")
+    assert "<script>alert(1)</script>" not in raw
+    assert "&lt;script&gt;alert(1)&lt;/script&gt;" in raw

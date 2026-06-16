@@ -1,3 +1,4 @@
+import html as _html
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -158,3 +159,157 @@ def generate_html(air_path: Path, out_dir: Path, mode: str, ndjson_name: str = "
             f"<p>If you are not redirected, <a href=\"{redirect_rel}\">click here</a>.</p>",
             encoding="utf-8",
         )
+
+
+def generate_summary_report(
+    out_dir: Path,
+    tc_name: str,
+    steps: list[dict],
+    status: str,
+    recordings: list[Path],
+    error_top: Exception | None = None,
+) -> Path:
+    status_cls = "pass" if status == "PASS" else "fail"
+    total = len(steps)
+    passed = sum(1 for s in steps if s["status"] == "PASS")
+    failed = sum(1 for s in steps if s["status"] == "FAIL")
+    total_duration = sum(s.get("duration") or 0 for s in steps)
+    recording_href = recordings[0].name if recordings else None
+
+    heading_html = f"""<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{_html.escape(tc_name)} — {status}</title>
+<style>
+*{{box-sizing:border-box;margin:0;padding:0}}
+body{{background:#0d1117;color:#c9d1d9;font-family:-apple-system,Segoe UI,Roboto,sans-serif;min-height:100vh;padding:0}}
+.banner{{padding:28px 32px 20px;text-align:center}}
+.banner.pass{{background:#0f2d1a;border-bottom:2px solid #2ea043}}
+.banner.fail{{background:#2d0f0f;border-bottom:2px solid #da3633}}
+.banner .status{{font-size:48px;font-weight:800;letter-spacing:2px}}
+.banner .status.pass{{color:#56d364}}
+.banner .status.fail{{color:#ff7b72}}
+.banner .meta{{margin-top:8px;font-size:14px;color:#8b949e}}
+.banner .meta span{{margin:0 12px}}
+.banner .rec-badge{{display:inline-block;background:#1c2128;padding:3px 10px;border-radius:10px;font-size:12px;color:#58a6ff;text-decoration:none;margin-top:8px}}
+.banner .rec-badge:hover{{background:#30363d}}
+.stats{{display:flex;gap:16px;justify-content:center;padding:20px 32px;background:#161b22;border-bottom:1px solid #30363d;flex-wrap:wrap}}
+.stat-box{{text-align:center;min-width:80px}}
+.stat-box .num{{font-size:24px;font-weight:700}}
+.stat-box .num.pass{{color:#56d364}}
+.stat-box .num.fail{{color:#ff7b72}}
+.stat-box .label{{font-size:11px;color:#6e7681;text-transform:uppercase;letter-spacing:.05em;margin-top:2px}}
+.filters{{padding:12px 32px;display:flex;gap:8px;align-items:center;background:#161b22;border-bottom:1px solid #30363d;flex-wrap:wrap}}
+.filters button{{padding:4px 14px;border:1px solid #30363d;border-radius:6px;background:#1c2128;color:#c9d1d9;cursor:pointer;font-size:12px}}
+.filters button:hover{{background:#30363d}}
+.filters button.active{{background:#388bfd;border-color:#388bfd;color:#fff}}
+.filters input{{flex:1;min-width:180px;padding:5px 10px;border:1px solid #30363d;border-radius:6px;background:#0d1117;color:#c9d1d9;font-size:13px;outline:none}}
+.filters input:focus{{border-color:#58a6ff}}
+table{{width:100%;border-collapse:collapse}}
+th{{background:#161b22;padding:8px 12px;text-align:left;font-size:11px;color:#6e7681;text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid #30363d;position:sticky;top:0}}
+td{{padding:8px 12px;border-bottom:1px solid #21262d;font-size:13px;vertical-align:middle}}
+tr.pass{{background:transparent}}
+tr.fail{{background:#2d0f0f33}}
+tr.fail:hover{{background:#2d0f0f66}}
+tr.pass:hover{{background:#1c2128}}
+.status-badge{{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700;min-width:44px;text-align:center}}
+.status-badge.pass{{background:#0f2d1a;color:#56d364;border:1px solid #2ea04333}}
+.status-badge.fail{{background:#2d0f0f;color:#ff7b72;border:1px solid #da363333}}
+td .screenshot{{max-width:72px;max-height:54px;border-radius:4px;border:1px solid #30363d;cursor:pointer;vertical-align:middle}}
+td .error-text{{color:#ff7b72;font-size:12px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer}}
+.no-runs{{text-align:center;padding:40px;color:#6e7681;font-style:italic}}
+.modal{{display:none;position:fixed;inset:0;z-index:100;align-items:center;justify-content:center}}
+.modal-bg{{position:fixed;inset:0;background:rgba(0,0,0,.8)}}
+.modal-content{{position:relative;z-index:101;max-width:90%;max-height:90%}}
+.modal-content img{{max-width:100%;max-height:85vh;border-radius:8px;border:1px solid #30363d}}
+.modal-close{{position:absolute;top:-32px;right:0;background:none;border:none;color:#8b949e;font-size:20px;cursor:pointer}}
+.modal-close:hover{{color:#f0f6fc}}
+</style></head><body>
+<div class="banner {status_cls}">
+  <div class="status {status_cls}">{status}</div>
+  <div class="meta"><span>{_html.escape(tc_name)}</span><span>|</span><span>{total} steps</span>"""
+
+    if recording_href:
+        heading_html += f'<br><a class="rec-badge" href="{_html.escape(recording_href, quote=True)}">&#9654; Recording</a>'
+
+    heading_html += """</div></div>"""
+
+    # Stats row
+    heading_html += f"""<div class="stats">
+  <div class="stat-box"><div class="num">{total}</div><div class="label">Steps</div></div>
+  <div class="stat-box"><div class="num pass">{passed}</div><div class="label">Passed</div></div>
+  <div class="stat-box"><div class="num fail">{failed}</div><div class="label">Failed</div></div>
+  <div class="stat-box"><div class="num">{total_duration:.1f}s</div><div class="label">Duration</div></div>
+</div>"""
+
+    # Filters
+    heading_html += """<div class="filters">
+  <button class="active" data-filter="all">All</button>
+  <button data-filter="pass">Pass</button>
+  <button data-filter="fail">Fail</button>
+  <input type="text" id="search" placeholder="Search steps...">
+</div>"""
+
+    # Table
+    heading_html += """<table id="step-table">
+<thead><tr><th>#</th><th>Step</th><th>Action</th><th>Status</th><th>Screenshot</th><th>Duration</th><th>Error</th></tr></thead><tbody>"""
+
+    for i, s in enumerate(steps, 1):
+        status_cls = "pass" if s["status"] == "PASS" else "fail"
+        safe_name = _html.escape(s["name"])
+        safe_action = _html.escape(s["action"])
+        safe_behaviour = _html.escape(s["behaviour"] or "")
+        dur = s.get("duration") or 0
+        dur_str = f"{dur:.2f}s"
+
+        screenshot_html = ""
+        if s.get("screenshot"):
+            safe_src = _html.escape(s["screenshot"], quote=True)
+            screenshot_html = f'<img class="screenshot" src="{safe_src}" onclick="openModal(this.src)" loading="lazy">'
+
+        error_html = ""
+        if safe_behaviour:
+            error_html = f'<div class="error-text" title="{safe_behaviour}">{safe_behaviour}</div>'
+
+        heading_html += f"""<tr class="{status_cls}" data-status="{s["status"].lower()}">
+<td>{i}</td>
+<td>{safe_name}</td>
+<td>{safe_action}</td>
+<td><span class="status-badge {status_cls}">{s["status"]}</span></td>
+<td>{screenshot_html}</td>
+<td>{dur_str}</td>
+<td>{error_html}</td>
+</tr>"""
+
+    heading_html += """</tbody></table>"""
+
+    # Modal + script
+    heading_html += """<div class="modal" id="modal"><div class="modal-bg" onclick="closeModal()"></div><div class="modal-content"><button class="modal-close" onclick="closeModal()">✕</button><img id="modal-img"></div></div>
+<script>
+var filterBtns=document.querySelectorAll('.filters button');
+var searchInput=document.getElementById('search');
+var rows=document.querySelectorAll('#step-table tbody tr');
+filterBtns.forEach(function(b){b.addEventListener('click',function(){
+  filterBtns.forEach(function(x){x.classList.remove('active')});
+  this.classList.add('active');
+  applyFilters();
+})});
+searchInput.addEventListener('input',applyFilters);
+function applyFilters(){
+  var active=document.querySelector('.filters button.active');
+  var filter=active?active.getAttribute('data-filter'):'all';
+  var q=searchInput.value.toLowerCase();
+  rows.forEach(function(r){
+    var show=true;
+    if(filter!=='all'&&r.getAttribute('data-status')!==filter)show=false;
+    if(q&&r.cells[1].textContent.toLowerCase().indexOf(q)===-1)show=false;
+    r.style.display=show?'':'none';
+  });
+}
+function openModal(src){document.getElementById('modal-img').src=src;document.getElementById('modal').style.display='flex';}
+function closeModal(){document.getElementById('modal').style.display='none';}
+document.addEventListener('keydown',function(e){if(e.key==='Escape')closeModal();});
+</script></body></html>"""
+
+    out = out_dir / "report_summary.html"
+    out.write_text(heading_html, encoding="utf-8")
+    return out
