@@ -57,6 +57,7 @@ def _hooked_run_step(name: str, action: Callable[..., Any], *args: Any, **kwargs
         "status": None,
         "screenshot": None,
         "behaviour": None,
+        "duration": None,
     }
     start = _time.time()
     try:
@@ -64,6 +65,7 @@ def _hooked_run_step(name: str, action: Callable[..., Any], *args: Any, **kwargs
         screen_path = _snapshot_step(name)
         step["status"] = "PASS"
         step["screenshot"] = screen_path or _latest_screenshot()
+        step["duration"] = round(_time.time() - start, 2)
         _steps.append(step)
         _emit_step_log(name, action_name, start, _time.time(), ret=screen_path, traceback=None)
         return result
@@ -72,6 +74,7 @@ def _hooked_run_step(name: str, action: Callable[..., Any], *args: Any, **kwargs
         step["status"] = "FAIL"
         step["screenshot"] = screen_path or _latest_screenshot()
         step["behaviour"] = str(exc)
+        step["duration"] = round(_time.time() - start, 2)
         _steps.append(step)
         _emit_step_log(name, action_name, start, _time.time(), ret=screen_path, traceback=str(exc))
         raise
