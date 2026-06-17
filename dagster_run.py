@@ -28,11 +28,22 @@ from airtest.core.api import connect_device, init_device, G
 from dagster.log_utils import setup_console_logging, LOG_LEVEL
 from dagster.runner import run_single_test
 from dagster.step_capture import patch_run_step
+from dagster.aggregate_report import regenerate_global_report
 
 def main():
-    # 1. Setup Environment & Capture Hooks
+    # 1a. Self-update from origin (best-effort, never blocks the run).
+    # Parent-only: when --device <serial> is in argv we are a parallel child
+    # and the parent already pulled - skip to avoid concurrent `git pull`.
+    from dagster.updater import check_and_update
+    check_and_update(repo_root=_dagster_dir, is_parallel_child=("--device" in sys.argv))
+
+    # 1b. Setup Environment & Capture Hooks
     setup_console_logging(LOG_LEVEL)
     patch_run_step()
+
+    from dagster.error_capture import attach_error_handler
+    attach_error_handler()  # pixon by default
+    attach_error_handler("airtest")
 
     # 2. CLI Argument Parsing
     parser = argparse.ArgumentParser(description="Dagster runner")
@@ -94,11 +105,20 @@ def main():
     # 6. Execute Tests
     run_had_failure = False
     for air_path in tests:
-        if not (air_path / f"{air_path.stem}.py").exists():
+        py_scripts = list(air_path.glob("*.py"))
+        if not py_scripts:
+            print(f"[WARN] {air_path.name}: no .py script found, skipping", file=sys.stderr)
             continue
-        failed = run_single_test(air_path, args.mode, device_id, report_root, scrcpy_path)
+        failed = run_single_test(air_path, py_scripts[0], args.mode, device_id, report_root, scrcpy_path)
         if failed:
             run_had_failure = True
+
+    # 6b. Regenerate global aggregated report
+    try:
+        out = regenerate_global_report(report_root)
+        print(f"[INFO] global report: {out}")
+    except Exception as e:
+        print(f"[WARN] global report generation failed: {e}", file=sys.stderr)
 
     # 7. Teardown
     try:

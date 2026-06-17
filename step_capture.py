@@ -8,14 +8,7 @@ from pixon.common import test_flow as _tf
 _steps: list[dict] = []
 _orig_run_step = _tf.run_step
 
-
-def _latest_screenshot() -> str | None:
-    """Find the most recently modified .jpg/.png in ST.LOG_DIR."""
-    d = Path(ST.LOG_DIR) if ST.LOG_DIR else None
-    if not d or not d.exists():
-        return None
-    imgs = sorted(list(d.glob("*.jpg")) + list(d.glob("*.png")), key=lambda p: p.stat().st_mtime)
-    return imgs[-1].name if imgs else None
+from dagster.log_utils import latest_screenshot as _latest_screenshot
 
 
 def _emit_step_log(name: str, action_name: str, start: float, end: float, ret: Any, traceback: str | None) -> None:
@@ -57,6 +50,7 @@ def _hooked_run_step(name: str, action: Callable[..., Any], *args: Any, **kwargs
         "status": None,
         "screenshot": None,
         "behaviour": None,
+        "duration": None,
     }
     start = _time.time()
     try:
@@ -64,6 +58,7 @@ def _hooked_run_step(name: str, action: Callable[..., Any], *args: Any, **kwargs
         screen_path = _snapshot_step(name)
         step["status"] = "PASS"
         step["screenshot"] = screen_path or _latest_screenshot()
+        step["duration"] = round(_time.time() - start, 2)
         _steps.append(step)
         _emit_step_log(name, action_name, start, _time.time(), ret=screen_path, traceback=None)
         return result
@@ -72,6 +67,7 @@ def _hooked_run_step(name: str, action: Callable[..., Any], *args: Any, **kwargs
         step["status"] = "FAIL"
         step["screenshot"] = screen_path or _latest_screenshot()
         step["behaviour"] = str(exc)
+        step["duration"] = round(_time.time() - start, 2)
         _steps.append(step)
         _emit_step_log(name, action_name, start, _time.time(), ret=screen_path, traceback=str(exc))
         raise

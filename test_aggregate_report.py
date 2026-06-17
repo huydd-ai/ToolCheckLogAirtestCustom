@@ -1,0 +1,290 @@
+from datetime import datetime
+from pathlib import Path
+
+from aggregate_report import (
+    parse_run_folder_name,
+    extract_status,
+    RunEntry,
+    scan_runs,
+    group_by_date,
+    render_html,
+    regenerate_global_report,
+    write_assets,
+)
+
+
+def test_parse_simple_stem():
+    assert parse_run_folder_name("tc01_foo_20260612_102041") == (
+        "tc01_foo",
+        datetime(2026, 6, 12, 10, 20, 41),
+    )
+
+
+def test_parse_stem_with_underscores():
+    assert parse_run_folder_name(
+        "tc01_check_daily_mission_icon_before_and_after_unlock_20260612_102041"
+    ) == (
+        "tc01_check_daily_mission_icon_before_and_after_unlock",
+        datetime(2026, 6, 12, 10, 20, 41),
+    )
+
+
+def test_parse_non_matching_returns_none():
+    assert parse_run_folder_name("_parallel_20260612_102041") is None
+    assert parse_run_folder_name("random_folder") is None
+    assert parse_run_folder_name("tc01_foo_20260612") is None
+
+
+def _write(tmp_path: Path, name: str, body: str) -> Path:
+    p = tmp_path / name
+    p.write_text(body, encoding="utf-8")
+    return p
+
+
+def test_extract_status_pass(tmp_path):
+    log = _write(
+        tmp_path,
+        "log.txt",
+        "# tc01\n# Run: 2026-06-12 10:22:15\n# Status: PASS\n",
+    )
+    assert extract_status(log) == "PASS"
+
+
+def test_extract_status_fail(tmp_path):
+    log = _write(
+        tmp_path,
+        "log.txt",
+        "# tc01\n# Run: 2026-06-12 10:22:15\n# Status: FAIL\n",
+    )
+    assert extract_status(log) == "FAIL"
+
+
+def test_extract_status_skip(tmp_path):
+    log = _write(
+        tmp_path,
+        "log.txt",
+        "# tc01\n# Run: 2026-06-12 10:22:15\n# Status: SKIP\n",
+    )
+    assert extract_status(log) == "SKIP"
+
+
+def test_extract_status_missing_returns_unknown(tmp_path):
+    log = _write(tmp_path, "log.txt", "no status line here\n")
+    assert extract_status(log) == "UNKNOWN"
+
+
+def test_extract_status_file_absent(tmp_path):
+    assert extract_status(tmp_path / "missing.txt") == "UNKNOWN"
+
+
+def _make_run(root: Path, folder: str, status_line: str | None) -> Path:
+    d = root / folder
+    d.mkdir()
+    if status_line is not None:
+        (d / "log.txt").write_text(
+            f"# stem\n# Run: 2026-06-12 10:00:00\n{status_line}\n",
+            encoding="utf-8",
+        )
+    return d
+
+
+def test_scan_runs_finds_matching_folders(tmp_path):
+    _make_run(tmp_path, "tc01_foo_20260612_102041", "# Status: PASS")
+    _make_run(tmp_path, "tc02_bar_20260612_103000", "# Status: FAIL")
+    entries = scan_runs(tmp_path)
+    assert len(entries) == 2
+    stems = {e.stem for e in entries}
+    assert stems == {"tc01_foo", "tc02_bar"}
+
+
+def test_scan_runs_skips_non_matching(tmp_path):
+    _make_run(tmp_path, "tc01_foo_20260612_102041", "# Status: PASS")
+    _make_run(tmp_path, "_parallel_20260612_102041", "# Status: PASS")
+    (tmp_path / "random_dir").mkdir()
+    entries = scan_runs(tmp_path)
+    assert len(entries) == 1
+    assert entries[0].stem == "tc01_foo"
+
+
+def test_scan_runs_skips_in_progress_without_status(tmp_path):
+    d = _make_run(tmp_path, "tc01_foo_20260612_102041", None)
+    (d / "airtest.log").write_text("", encoding="utf-8")
+    entries = scan_runs(tmp_path)
+    assert entries == []
+
+
+def test_scan_runs_relative_report_path(tmp_path):
+    _make_run(tmp_path, "tc01_foo_20260612_102041", "# Status: PASS")
+    entries = scan_runs(tmp_path)
+    assert entries[0].report_href == "tc01_foo_20260612_102041/report.html"
+
+
+def test_scan_runs_empty_root(tmp_path):
+    assert scan_runs(tmp_path) == []
+
+
+def _entry(stem: str, dt_str: str, status: str) -> RunEntry:
+    dt = datetime.strptime(dt_str, "%Y-%m-%d %H:%M:%S")
+    folder = f"{stem}_{dt.strftime('%Y%m%d_%H%M%S')}"
+    return RunEntry(stem, dt, status, folder, f"{folder}/report.html")
+
+
+def test_group_by_date_dates_sorted_descending():
+    entries = [
+        _entry("a", "2026-06-10 10:00:00", "PASS"),
+        _entry("b", "2026-06-12 10:00:00", "PASS"),
+        _entry("c", "2026-06-11 10:00:00", "PASS"),
+    ]
+    groups = group_by_date(entries)
+    assert [d for d, _ in groups] == ["2026-06-12", "2026-06-11", "2026-06-10"]
+
+
+def test_group_by_date_within_group_sorted_newest_first():
+    entries = [
+        _entry("a", "2026-06-12 09:00:00", "PASS"),
+        _entry("b", "2026-06-12 11:30:00", "FAIL"),
+        _entry("c", "2026-06-12 10:00:00", "PASS"),
+    ]
+    groups = group_by_date(entries)
+    assert len(groups) == 1
+    _, rows = groups[0]
+    assert [r.stem for r in rows] == ["b", "c", "a"]
+
+
+def test_group_by_date_empty():
+    assert group_by_date([]) == []
+
+
+def test_render_html_contains_doctype_and_title():
+    html = render_html([])
+    assert html.startswith("<!DOCTYPE html>")
+    assert "<title>Dagster Test Reports</title>" in html
+
+
+def test_render_html_empty_state():
+    html = render_html([])
+    assert "No test runs found" in html
+
+
+def test_render_html_group_header_has_counts():
+    entries = [
+        _entry("a", "2026-06-12 10:00:00", "PASS"),
+        _entry("b", "2026-06-12 11:00:00", "FAIL"),
+        _entry("c", "2026-06-12 09:00:00", "PASS"),
+    ]
+    html = render_html(group_by_date(entries))
+    assert "2026-06-12" in html
+    assert "2 PASS" in html
+    assert "1 FAIL" in html
+
+
+def test_render_html_today_open_past_collapsed():
+    from datetime import date
+    today = date.today().strftime("%Y-%m-%d")
+    yesterday_entries = [_entry("a", "2020-01-01 10:00:00", "PASS")]
+    today_entries = [_entry("b", datetime.now().strftime("%Y-%m-%d 10:00:00"), "PASS")]
+    html = render_html(group_by_date(today_entries + yesterday_entries))
+    assert f"<details open><summary>{today}" in html
+    assert "<details><summary>2020-01-01" in html
+
+
+def test_render_html_row_links_to_report():
+    entries = [_entry("tc01_foo", "2026-06-12 10:20:41", "PASS")]
+    html = render_html(group_by_date(entries))
+    assert 'href="tc01_foo_20260612_102041/report.html"' in html
+    assert "tc01_foo" in html
+
+
+def test_render_html_status_badge_classes():
+    entries = [
+        _entry("a", "2026-06-12 10:00:00", "PASS"),
+        _entry("b", "2026-06-12 11:00:00", "FAIL"),
+        _entry("c", "2026-06-12 09:00:00", "SKIP"),
+    ]
+    html = render_html(group_by_date(entries))
+    assert 'class="badge pass">PASS<' in html
+    assert 'class="badge fail">FAIL<' in html
+    assert 'class="badge skip">SKIP<' in html
+
+
+def test_render_html_escapes_stem():
+    entries = [_entry("tc01_<script>", "2026-06-12 10:00:00", "PASS")]
+    html = render_html(group_by_date(entries))
+    # Raw stem must not appear unescaped anywhere (HTML text or JS string)
+    assert "tc01_<script>" not in html
+    assert "&lt;script&gt;" in html
+
+
+def test_regenerate_writes_report_html(tmp_path):
+    _make_run(tmp_path, "tc01_foo_20260612_102041", "# Status: PASS")
+    out = regenerate_global_report(tmp_path)
+    assert out == tmp_path / "report.html"
+    assert out.exists()
+    assert "tc01_foo" in out.read_text(encoding="utf-8")
+
+
+def test_regenerate_overwrites_existing(tmp_path):
+    (tmp_path / "report.html").write_text("OLD", encoding="utf-8")
+    _make_run(tmp_path, "tc01_foo_20260612_102041", "# Status: PASS")
+    regenerate_global_report(tmp_path)
+    assert "OLD" not in (tmp_path / "report.html").read_text(encoding="utf-8")
+
+
+def test_regenerate_empty_root_writes_empty_state(tmp_path):
+    out = regenerate_global_report(tmp_path)
+    assert out.exists()
+    assert "No test runs found" in out.read_text(encoding="utf-8")
+
+
+def test_regenerate_creates_root_if_missing(tmp_path):
+    target = tmp_path / "report_run"
+    out = regenerate_global_report(target)
+    assert out.exists()
+    assert target.exists()
+
+
+def test_render_html_group_has_delete_all_button():
+    entries = [_entry("a", "2026-06-12 10:00:00", "PASS")]
+    html = render_html(group_by_date(entries))
+    assert 'class="del-all-btn"' in html
+    assert 'deleteAllRuns(this,"2026-06-12")' in html
+
+
+def test_render_html_row_has_delete_button():
+    entries = [_entry("tc01_foo", "2026-06-12 10:20:41", "PASS")]
+    html = render_html(group_by_date(entries))
+    assert 'class="del-btn"' in html
+    assert 'deleteRun(event,"tc01_foo_20260612_102041")' in html
+
+
+def test_render_html_delete_button_uses_folder_name():
+    entries = [_entry("tc02_bar", "2026-06-12 11:00:00", "FAIL")]
+    html = render_html(group_by_date(entries))
+    folder = "tc02_bar_20260612_110000"
+    assert f'deleteRun(event,"{folder}")' in html
+
+
+def test_render_html_uses_external_assets():
+    html = render_html([])
+    assert '<link rel="stylesheet" href="style.css">' in html
+    assert '<script src="script.js"></script>' in html
+    # No inline <style> or inline JS block for openReport
+    assert "<style>" not in html
+    assert "function openReport(" not in html
+
+
+def test_regenerate_writes_assets(tmp_path):
+    _make_run(tmp_path, "tc01_foo_20260612_102041", "# Status: PASS")
+    regenerate_global_report(tmp_path)
+    assert (tmp_path / "style.css").exists()
+    assert (tmp_path / "script.js").exists()
+    css = (tmp_path / "style.css").read_text(encoding="utf-8")
+    js = (tmp_path / "script.js").read_text(encoding="utf-8")
+    assert ".del-btn" in css
+    assert "function deleteRun" in js or "deleteRun=" in js
+
+
+def test_write_assets_standalone(tmp_path):
+    write_assets(tmp_path)
+    assert (tmp_path / "style.css").exists()
+    assert (tmp_path / "script.js").exists()
