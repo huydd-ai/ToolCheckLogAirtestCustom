@@ -161,6 +161,9 @@ def generate_html(air_path: Path, out_dir: Path, mode: str, ndjson_name: str = "
         )
 
 
+_VALID_STEP_STATUSES = {"PASS", "FAIL"}
+
+
 def generate_summary_report(
     out_dir: Path,
     tc_name: str,
@@ -170,15 +173,28 @@ def generate_summary_report(
     error_top: Exception | None = None,
 ) -> Path:
     status_cls = {"PASS": "pass", "FAIL": "fail"}.get(status, "skip")
+    safe_status = _html.escape(status)
+    safe_tc_name = _html.escape(tc_name)
     total = len(steps)
     passed = sum(1 for s in steps if s["status"] == "PASS")
     failed = sum(1 for s in steps if s["status"] == "FAIL")
     total_duration = sum(s.get("duration") or 0 for s in steps)
-    recording_href = recordings[0].name if recordings else None
 
-    heading_html = f"""<!DOCTYPE html>
+    first_fail = next((s for s in steps if s["status"] == "FAIL"), None)
+    error_message: str | None = None
+    error_screenshot: str | None = None
+    if error_top is not None:
+        error_message = str(error_top)
+    if first_fail is not None:
+        if not error_message:
+            error_message = first_fail.get("behaviour") or "Step failed (no detail)"
+        error_screenshot = first_fail.get("screenshot")
+
+    parts: list[str] = []
+
+    parts.append(f"""<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>{_html.escape(tc_name)} — {status}</title>
+<title>{safe_tc_name} — {safe_status}</title>
 <style>
 *{{box-sizing:border-box;margin:0;padding:0}}
 body{{background:#0d1117;color:#c9d1d9;font-family:-apple-system,Segoe UI,Roboto,sans-serif;min-height:100vh;padding:0}}
@@ -192,7 +208,7 @@ body{{background:#0d1117;color:#c9d1d9;font-family:-apple-system,Segoe UI,Roboto
 .banner .status.skip{{color:#d29922}}
 .banner .meta{{margin-top:8px;font-size:14px;color:#8b949e}}
 .banner .meta span{{margin:0 12px}}
-.banner .rec-badge{{display:inline-block;background:#1c2128;padding:3px 10px;border-radius:10px;font-size:12px;color:#58a6ff;text-decoration:none;margin-top:8px}}
+.banner .rec-badge{{display:inline-block;background:#1c2128;padding:3px 10px;border-radius:10px;font-size:12px;color:#58a6ff;text-decoration:none;margin:8px 4px 0}}
 .banner .rec-badge:hover{{background:#30363d}}
 .stats{{display:flex;gap:16px;justify-content:center;padding:20px 32px;background:#161b22;border-bottom:1px solid #30363d;flex-wrap:wrap}}
 .stat-box{{text-align:center;min-width:80px}}
@@ -219,6 +235,10 @@ tr.pass:hover{{background:#1c2128}}
 td .screenshot{{max-width:72px;max-height:54px;border-radius:4px;border:1px solid #30363d;cursor:pointer;vertical-align:middle}}
 td .error-text{{color:#ff7b72;font-size:12px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer}}
 .no-runs{{text-align:center;padding:40px;color:#6e7681;font-style:italic}}
+.error-panel{{background:#161b22;border-top:1px solid #30363d;border-bottom:1px solid #30363d;padding:20px 32px}}
+.error-panel h2{{font-size:14px;color:#ff7b72;text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px}}
+.error-panel pre{{background:#0d1117;border:1px solid #30363d;border-radius:6px;padding:12px;color:#ff7b72;font-size:12px;white-space:pre-wrap;word-break:break-word;margin-bottom:12px}}
+.error-panel img{{max-width:100%;border-radius:6px;border:1px solid #30363d}}
 .modal{{display:none;position:fixed;inset:0;z-index:100;align-items:center;justify-content:center}}
 .modal-bg{{position:fixed;inset:0;background:rgba(0,0,0,.8)}}
 .modal-content{{position:relative;z-index:101;max-width:90%;max-height:90%}}
@@ -227,65 +247,74 @@ td .error-text{{color:#ff7b72;font-size:12px;max-width:200px;overflow:hidden;tex
 .modal-close:hover{{color:#f0f6fc}}
 </style></head><body>
 <div class="banner {status_cls}">
-  <div class="status {status_cls}">{status}</div>
-  <div class="meta"><span>{_html.escape(tc_name)}</span><span>|</span><span>{total} steps</span>"""
+  <div class="status {status_cls}">{safe_status}</div>
+  <div class="meta"><span>{safe_tc_name}</span><span>|</span><span>{total} steps</span>""")
 
-    if recording_href:
-        heading_html += f'<br><a class="rec-badge" href="{_html.escape(recording_href, quote=True)}">&#9654; Recording</a>'
+    for rec in recordings:
+        safe_rec = _html.escape(rec.name, quote=True)
+        parts.append(f'<br><a class="rec-badge" href="{safe_rec}">&#9654; {safe_rec}</a>')
 
-    heading_html += """</div></div>"""
+    parts.append("""</div></div>""")
 
-    # Stats row
-    heading_html += f"""<div class="stats">
+    parts.append(f"""<div class="stats">
   <div class="stat-box"><div class="num">{total}</div><div class="label">Steps</div></div>
   <div class="stat-box"><div class="num pass">{passed}</div><div class="label">Passed</div></div>
   <div class="stat-box"><div class="num fail">{failed}</div><div class="label">Failed</div></div>
-  <div class="stat-box"><div class="num">{total_duration:.1f}s</div><div class="label">Duration</div></div>
-</div>"""
+  <div class="stat-box"><div class="num">{total_duration:.2f}s</div><div class="label">Duration</div></div>
+</div>""")
 
-    # Filters
-    heading_html += """<div class="filters">
+    parts.append("""<div class="filters">
   <button class="active" data-filter="all">All</button>
   <button data-filter="pass">Pass</button>
   <button data-filter="fail">Fail</button>
   <input type="text" id="search" placeholder="Search steps...">
-</div>"""
+</div>""")
 
-    # Table
-    heading_html += """<table id="step-table">
-<thead><tr><th>#</th><th>Step</th><th>Action</th><th>Status</th><th>Screenshot</th><th>Duration</th><th>Error</th></tr></thead><tbody>"""
+    parts.append("""<table id="step-table">
+<thead><tr><th>#</th><th>Step</th><th>Action</th><th>Status</th><th>Screenshot</th><th>Duration</th><th>Error</th></tr></thead><tbody>""")
 
-    for i, s in enumerate(steps, 1):
-        status_cls = "pass" if s["status"] == "PASS" else "fail"
-        safe_name = _html.escape(s["name"])
-        safe_action = _html.escape(s["action"])
-        safe_behaviour = _html.escape(s["behaviour"] or "")
-        dur = s.get("duration") or 0
-        dur_str = f"{dur:.2f}s"
+    if total == 0:
+        parts.append('<tr><td colspan="7" class="no-runs">No steps captured</td></tr>')
+    else:
+        for i, s in enumerate(steps, 1):
+            raw_status = s["status"] if s["status"] in _VALID_STEP_STATUSES else "FAIL"
+            row_cls = "pass" if raw_status == "PASS" else "fail"
+            safe_name = _html.escape(s["name"])
+            safe_action = _html.escape(s["action"])
+            safe_behaviour = _html.escape(s["behaviour"] or "")
+            dur = s.get("duration") or 0
+            dur_str = f"{dur:.2f}s"
 
-        screenshot_html = ""
-        if s.get("screenshot"):
-            safe_src = _html.escape(s["screenshot"], quote=True)
-            screenshot_html = f'<img class="screenshot" src="{safe_src}" onclick="openModal(this.src)" loading="lazy">'
+            screenshot_html = ""
+            if s.get("screenshot"):
+                safe_src = _html.escape(s["screenshot"], quote=True)
+                screenshot_html = f'<img class="screenshot" src="{safe_src}" onclick="openModal(this.src)" loading="lazy">'
 
-        error_html = ""
-        if safe_behaviour:
-            error_html = f'<div class="error-text" title="{safe_behaviour}">{safe_behaviour}</div>'
+            error_html = ""
+            if safe_behaviour:
+                error_html = f'<div class="error-text" title="{safe_behaviour}">{safe_behaviour}</div>'
 
-        heading_html += f"""<tr class="{status_cls}" data-status="{s["status"].lower()}">
+            parts.append(f"""<tr class="{row_cls}" data-status="{row_cls}">
 <td>{i}</td>
-<td>{safe_name}</td>
+<td class="step-name">{safe_name}</td>
 <td>{safe_action}</td>
-<td><span class="status-badge {status_cls}">{s["status"]}</span></td>
+<td><span class="status-badge {row_cls}">{raw_status}</span></td>
 <td>{screenshot_html}</td>
 <td>{dur_str}</td>
 <td>{error_html}</td>
-</tr>"""
+</tr>""")
 
-    heading_html += """</tbody></table>"""
+    parts.append("""</tbody></table>""")
 
-    # Modal + script
-    heading_html += """<div class="modal" id="modal"><div class="modal-bg" onclick="closeModal()"></div><div class="modal-content"><button class="modal-close" onclick="closeModal()">✕</button><img id="modal-img"></div></div>
+    if error_message:
+        safe_err = _html.escape(error_message)
+        parts.append(f'<div class="error-panel"><h2>Failure detail</h2><pre>{safe_err}</pre>')
+        if error_screenshot:
+            safe_err_src = _html.escape(error_screenshot, quote=True)
+            parts.append(f'<img src="{safe_err_src}" loading="lazy">')
+        parts.append('</div>')
+
+    parts.append("""<div class="modal" id="modal"><div class="modal-bg" onclick="closeModal()"></div><div class="modal-content"><button class="modal-close" onclick="closeModal()">✕</button><img id="modal-img"></div></div>
 <script>
 var filterBtns=document.querySelectorAll('.filters button');
 var searchInput=document.getElementById('search');
@@ -303,15 +332,16 @@ function applyFilters(){
   rows.forEach(function(r){
     var show=true;
     if(filter!=='all'&&r.getAttribute('data-status')!==filter)show=false;
-    if(q&&r.cells[1].textContent.toLowerCase().indexOf(q)===-1)show=false;
+    var nameCell=r.querySelector('.step-name');
+    if(q&&(!nameCell||nameCell.textContent.toLowerCase().indexOf(q)===-1))show=false;
     r.style.display=show?'':'none';
   });
 }
 function openModal(src){document.getElementById('modal-img').src=src;document.getElementById('modal').style.display='flex';}
 function closeModal(){document.getElementById('modal').style.display='none';}
 document.addEventListener('keydown',function(e){if(e.key==='Escape')closeModal();});
-</script></body></html>"""
+</script></body></html>""")
 
     out = out_dir / "report_summary.html"
-    out.write_text(heading_html, encoding="utf-8")
+    out.write_text("".join(parts), encoding="utf-8")
     return out
