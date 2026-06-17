@@ -39,6 +39,10 @@ def main():
     setup_console_logging(LOG_LEVEL)
     patch_run_step()
 
+    from dagster.error_capture import attach_error_handler
+    attach_error_handler()  # pixon by default
+    attach_error_handler("airtest")
+
     # 2. CLI Argument Parsing
     parser = argparse.ArgumentParser(description="Dagster runner")
     parser.add_argument("target", nargs="+", help="Paths or globs to .air projects")
@@ -99,9 +103,11 @@ def main():
     # 6. Execute Tests
     run_had_failure = False
     for air_path in tests:
-        if not (air_path / f"{air_path.stem}.py").exists():
+        py_scripts = list(air_path.glob("*.py"))
+        if not py_scripts:
+            print(f"[WARN] {air_path.name}: no .py script found, skipping", file=sys.stderr)
             continue
-        failed = run_single_test(air_path, args.mode, device_id, report_root, scrcpy_path)
+        failed = run_single_test(air_path, py_scripts[0], args.mode, device_id, report_root, scrcpy_path)
         if failed:
             run_had_failure = True
 

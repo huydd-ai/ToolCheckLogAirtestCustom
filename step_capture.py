@@ -8,14 +8,7 @@ from pixon.common import test_flow as _tf
 _steps: list[dict] = []
 _orig_run_step = _tf.run_step
 
-
-def _latest_screenshot() -> str | None:
-    """Find the most recently modified .jpg/.png in ST.LOG_DIR."""
-    d = Path(ST.LOG_DIR) if ST.LOG_DIR else None
-    if not d or not d.exists():
-        return None
-    imgs = sorted(list(d.glob("*.jpg")) + list(d.glob("*.png")), key=lambda p: p.stat().st_mtime)
-    return imgs[-1].name if imgs else None
+from dagster.log_utils import latest_screenshot as _latest_screenshot
 
 
 def _emit_step_log(name: str, action_name: str, start: float, end: float, ret: Any, traceback: str | None) -> None:

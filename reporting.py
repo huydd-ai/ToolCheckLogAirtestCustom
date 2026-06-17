@@ -129,7 +129,7 @@ def _normalize_and_filter_airtest_log(log_path: Path, mode: str) -> None:
         print(f"[WARN] log normalization/filtering failed: {e}", file=sys.stderr)
 
 
-def generate_html(air_path: Path, out_dir: Path, mode: str, ndjson_name: str = "airtest.log", recordings: list[Path] | None = None) -> None:
+def generate_html(air_path: Path, out_dir: Path, mode: str, ndjson_name: str = "airtest.log", recordings: list[Path] | None = None, status: str = "PASS") -> None:
     """Generate Airtest HTML report from NDJSON log."""
     from airtest.report.report import LogToHtml
 
@@ -151,6 +151,22 @@ def generate_html(air_path: Path, out_dir: Path, mode: str, ndjson_name: str = "
     if not target_report.exists():
         target_report = exported / "log.html"
     if target_report.exists():
+        html_content = target_report.read_text(encoding="utf-8")
+        
+        # Override Airtest's native success indicator if the overall test failed
+        if status == "FAIL" and '"test_result": true' in html_content:
+            html_content = html_content.replace('"test_result": true', '"test_result": false')
+        
+        # Fix Airtest's absolute static path bug (e.g. href="C:/.../static/css/..." -> href="static/css/...")
+        import re
+        html_content = re.sub(r'(href|src)="[^"]*?(static/(?:css|js)/[^"]*?)"', r'\1="\2"', html_content)
+        
+        # Fix Airtest's double-slash static path bug (static//css -> static/css)
+        if "static//" in html_content:
+            html_content = html_content.replace("static//", "static/")
+            
+        target_report.write_text(html_content, encoding="utf-8")
+
         redirect_rel = f"{exported.name}/{target_report.name}"
         (out_dir / "report.html").write_text(
             "<!DOCTYPE html><meta charset=\"utf-8\">"

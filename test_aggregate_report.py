@@ -9,6 +9,7 @@ from aggregate_report import (
     group_by_date,
     render_html,
     regenerate_global_report,
+    write_assets,
 )
 
 
@@ -209,7 +210,8 @@ def test_render_html_status_badge_classes():
 def test_render_html_escapes_stem():
     entries = [_entry("tc01_<script>", "2026-06-12 10:00:00", "PASS")]
     html = render_html(group_by_date(entries))
-    assert "<script>" not in html
+    # Raw stem must not appear unescaped anywhere (HTML text or JS string)
+    assert "tc01_<script>" not in html
     assert "&lt;script&gt;" in html
 
 
@@ -239,3 +241,50 @@ def test_regenerate_creates_root_if_missing(tmp_path):
     out = regenerate_global_report(target)
     assert out.exists()
     assert target.exists()
+
+
+def test_render_html_group_has_delete_all_button():
+    entries = [_entry("a", "2026-06-12 10:00:00", "PASS")]
+    html = render_html(group_by_date(entries))
+    assert 'class="del-all-btn"' in html
+    assert 'deleteAllRuns(this,"2026-06-12")' in html
+
+
+def test_render_html_row_has_delete_button():
+    entries = [_entry("tc01_foo", "2026-06-12 10:20:41", "PASS")]
+    html = render_html(group_by_date(entries))
+    assert 'class="del-btn"' in html
+    assert 'deleteRun(event,"tc01_foo_20260612_102041")' in html
+
+
+def test_render_html_delete_button_uses_folder_name():
+    entries = [_entry("tc02_bar", "2026-06-12 11:00:00", "FAIL")]
+    html = render_html(group_by_date(entries))
+    folder = "tc02_bar_20260612_110000"
+    assert f'deleteRun(event,"{folder}")' in html
+
+
+def test_render_html_uses_external_assets():
+    html = render_html([])
+    assert '<link rel="stylesheet" href="style.css">' in html
+    assert '<script src="script.js"></script>' in html
+    # No inline <style> or inline JS block for openReport
+    assert "<style>" not in html
+    assert "function openReport(" not in html
+
+
+def test_regenerate_writes_assets(tmp_path):
+    _make_run(tmp_path, "tc01_foo_20260612_102041", "# Status: PASS")
+    regenerate_global_report(tmp_path)
+    assert (tmp_path / "style.css").exists()
+    assert (tmp_path / "script.js").exists()
+    css = (tmp_path / "style.css").read_text(encoding="utf-8")
+    js = (tmp_path / "script.js").read_text(encoding="utf-8")
+    assert ".del-btn" in css
+    assert "function deleteRun" in js or "deleteRun=" in js
+
+
+def test_write_assets_standalone(tmp_path):
+    write_assets(tmp_path)
+    assert (tmp_path / "style.css").exists()
+    assert (tmp_path / "script.js").exists()

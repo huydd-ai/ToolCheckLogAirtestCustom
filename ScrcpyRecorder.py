@@ -12,8 +12,9 @@ class ScrcpyRecorder:
         device: str | None = None,
         max_size: int = 0,
         bit_rate: str = "8M",
-        max_fps: int = 0,
+        max_fps: int = 240,
         video_codec: str = "h264",
+        video_codec_options: str = "",
         turn_screen_off: bool = False,
         stay_awake: bool = True,
         scrcpy_path: str = "scrcpy",
@@ -24,6 +25,7 @@ class ScrcpyRecorder:
         self.bit_rate = bit_rate
         self.max_fps = max_fps
         self.video_codec = video_codec
+        self.video_codec_options = video_codec_options
         self.turn_screen_off = turn_screen_off
         self.stay_awake = stay_awake
         self.scrcpy_path = scrcpy_path
@@ -41,6 +43,9 @@ class ScrcpyRecorder:
             "--max-fps", str(self.max_fps),
             "--video-codec", self.video_codec,
         ]
+
+        if self.video_codec_options:
+            cmd.extend(["--video-codec-options", self.video_codec_options])
 
         if self.max_size > 0:
             cmd.extend(["--max-size", str(self.max_size)])
@@ -83,11 +88,9 @@ class ScrcpyRecorder:
             self.proc.wait(timeout=timeout)
         except subprocess.TimeoutExpired:
             self.proc.kill()
+            time.sleep(1)
         finally:
             self.proc = None
-
-        # Ensure file is finalized
-        time.sleep(1)
 
         if not self.output.exists() or self.output.stat().st_size < 1024:
             raise RuntimeError(f"Scrcpy recording failed: {self.output}")

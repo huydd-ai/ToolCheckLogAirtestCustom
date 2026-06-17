@@ -10,14 +10,14 @@ from dagster.reporting import write_log_txt, generate_html, generate_summary_rep
 from dagster.step_capture import clear_steps, get_steps
 
 
-def run_single_test(air_path: Path, mode: str, device_id: str, report_root: Path, scrcpy_path: str) -> bool:
+def run_single_test(air_path: Path, py_script: Path, mode: str, device_id: str, report_root: Path, scrcpy_path: str) -> bool:
     """Run a single Airtest module, capture steps, video, and generate report. Returns True if failed."""
-    module_name = air_path.stem
+    module_name = py_script.stem
     ts_str = datetime.now().strftime("%Y%m%d_%H%M%S")
     out_dir = report_root / f"{air_path.stem}_{ts_str}"
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    auto_setup(str(air_path / f"{air_path.stem}.py"))
+    auto_setup(str(py_script))
     ST.LOG_DIR = str(out_dir)
     G.LOGGER.set_logfile(str(out_dir / "airtest.log"))
 
@@ -27,11 +27,19 @@ def run_single_test(air_path: Path, mode: str, device_id: str, report_root: Path
     try:
         # pyrefly: ignore [missing-import]
         from ScrcpyRecorder import ScrcpyRecorder
-        recorder = ScrcpyRecorder(output=str(recording_path), device=device_id, scrcpy_path=scrcpy_path)
+        recorder = ScrcpyRecorder(
+            output=str(recording_path),
+            device=device_id,
+            scrcpy_path=scrcpy_path,
+            bit_rate="20M",
+            video_codec_options="frame-rate=60",
+        )
         recorder.start()
     except Exception as e:
         print(f"[WARN] Failed to start recorder: {e}", file=sys.stderr)
 
+    from dagster.error_capture import clear_errors
+    clear_errors()
     clear_steps()
     error_top = None
     status = "PASS"
@@ -69,10 +77,60 @@ def run_single_test(air_path: Path, mode: str, device_id: str, report_root: Path
         if status == "PASS" and any(s["status"] == "FAIL" for s in steps):
             status = "FAIL"
 
+        from dagster.error_capture import get_errors
+        errors = get_errors()
+        if errors and status == "PASS":
+            status = "FAIL"
+
+        if errors and error_top is None:
+            error_top = RuntimeError(errors[0]["msg"])
+
+        for err in errors:
+            if any(s.get("behaviour") == err["msg"] for s in steps):
+                continue
+            steps.append({
+                "name": f"[ERROR] {err['logger']}",
+                "action": "logged_error",
+                "status": "FAIL",
+                "screenshot": err.get("screenshot"),
+                "behaviour": err["msg"],
+                "duration": 0,
+            })
+
+        airtest_log = out_dir / "airtest.log"
+        if airtest_log.exists():
+            import json
+            try:
+                for line in airtest_log.read_text(encoding="utf-8").splitlines():
+                    if not line.strip(): continue
+                    try:
+                        obj = json.loads(line)
+                        data_dict = obj.get("data", {})
+                        tb = data_dict.get("traceback")
+                        if tb:
+                            if status == "PASS":
+                                status = "FAIL"
+                            err_msg = tb.strip().split('\n')[-1]
+                            if error_top is None:
+                                error_top = RuntimeError(err_msg)
+                            if not any(s.get("behaviour") == err_msg for s in steps):
+                                steps.append({
+                                    "name": "[ERROR] Airtest Assertion",
+                                    "action": "assert_failed",
+                                    "status": "FAIL",
+                                    "screenshot": None,
+                                    "behaviour": err_msg,
+                                    "duration": 0,
+                                })
+                    except json.JSONDecodeError:
+                        pass
+            except Exception as e:
+                print(f"[WARN] Failed to parse airtest.log: {e}", file=sys.stderr)
+
         recordings = sorted(out_dir.glob("recording_*.mp4"))
 
         try:
-            generate_html(air_path, out_dir, mode, ndjson_name="airtest.log", recordings=recordings)
+            generate_html(air_path, out_dir, mode, ndjson_name="airtest.log", recordings=recordings, status=status)
             print(f"[INFO] report.html generated")
         except Exception as e:
             print(f"[WARN] Failed to generate report: {e}", file=sys.stderr)
