@@ -13,6 +13,8 @@ Portable, modular runner for Airtest `.air` projects with structured step loggin
 | `log_utils.py` | Configures console output logging for Airtest/Poco. |
 | `ScrcpyRecorder.py` | Subprocess wrapper around `scrcpy.exe` for Android screen recording (`.mp4`). |
 | `scrcpy-win64/` | Vendored scrcpy v3.x Windows binaries (scrcpy.exe, adb.exe, dlls). |
+| `aggregate_report.py` | Generates the global `report.html` dashboard, aggregating all test runs by date. |
+| `report_server.py` | Local HTTP server (`python report_server.py`) serving the dashboard and handling delete APIs. |
 | `report_run/` | Per-test output dirs (`log.txt`, `report.html`, `recording_*.mp4`). Gitignored. |
 
 ## Requirements
@@ -48,7 +50,20 @@ python dagster_run.py path/to/test.air --device emulator-5554
 Output lands in `report_run/<test_stem>_<timestamp>/`:
 - `log.txt` — structured step log: `name: action, screenshot, status[, error]` (Tester mode only)
 - `report.html` — Airtest native HTML report
+- `report_summary.html` — Dagster custom summary report
 - `recording_<device>_<test>.mp4` — scrcpy capture
+
+### Global Dashboard
+
+You can view a centralized dashboard of all test runs across all dates. It provides a rich UI to view passed/failed statuses, access native Airtest logs, and mass-delete old reports to save space.
+
+```powershell
+# Start the local server
+python dagster/report_server.py --port 7070
+
+# Open in your browser:
+# http://localhost:7070/
+```
 
 ### Self-update
 
