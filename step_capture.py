@@ -90,6 +90,9 @@ def patch_run_step():
 
 
 def clear_steps():
+    global _current, _last
+    _current = None
+    _last = None
     _steps.clear()
 
 
