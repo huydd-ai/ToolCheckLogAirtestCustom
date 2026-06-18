@@ -17,11 +17,25 @@ class ErrorCaptureHandler(logging.Handler):
         except Exception:
             msg = str(record.msg)
 
+        from dagster.step_capture import get_current as _cur_step
+        current_step = _cur_step()
+
+        screen = None
+        try:
+            from airtest.core.api import snapshot as _snap
+            result = _snap(msg=current_step or "error")
+            screen = result.get("screen") if isinstance(result, dict) else None
+        except Exception:
+            pass
+        if screen is None:
+            screen = latest_screenshot()
+
         _errors.append({
             "ts": record.created,
             "logger": record.name,
+            "step": current_step,
             "msg": msg,
-            "screenshot": latest_screenshot(),
+            "screenshot": screen,
         })
 
 def attach_error_handler(logger_name: str = "pixon") -> None:
