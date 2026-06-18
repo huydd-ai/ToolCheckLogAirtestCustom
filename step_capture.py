@@ -6,9 +6,16 @@ from airtest.core.settings import Settings as ST
 from pixon.common import test_flow as _tf
 
 _steps: list[dict] = []
+_current: str | None = None   # in-flight: set while run_step executes
+_last: str | None = None       # persistent: last step that ran, never cleared
 _orig_run_step = _tf.run_step
 
 from dagster.log_utils import latest_screenshot as _latest_screenshot
+
+
+def get_current() -> str | None:
+    """Return in-flight step name, or last-ran step name if between steps."""
+    return _current or _last
 
 
 def _emit_step_log(name: str, action_name: str, start: float, end: float, ret: Any, traceback: str | None) -> None:
@@ -43,6 +50,9 @@ def _snapshot_step(name: str) -> str | None:
 
 def _hooked_run_step(name: str, action: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
     """Intercept run_step calls to capture step name, action, status, screenshot, and error."""
+    global _current, _last
+    _current = name
+    _last = name
     action_name = getattr(action, "__name__", str(action))
     step = {
         "name": name,
@@ -71,6 +81,8 @@ def _hooked_run_step(name: str, action: Callable[..., Any], *args: Any, **kwargs
         _steps.append(step)
         _emit_step_log(name, action_name, start, _time.time(), ret=screen_path, traceback=str(exc))
         raise
+    finally:
+        _current = None   # clear in-flight; _last stays
 
 
 def patch_run_step():
