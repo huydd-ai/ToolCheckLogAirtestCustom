@@ -146,7 +146,7 @@ def run_single_test(air_path: Path, py_script: Path, mode: str, device_id: str, 
             print(f"[WARN] Failed to generate summary report: {e}", file=sys.stderr)
 
         try:
-            write_log_txt(out_dir, air_path.stem, steps, error_top)
+            write_log_txt(out_dir, air_path.stem, steps, error_top, air_path=air_path)
             print(f"[INFO] log.txt written with {len(steps)} steps")
         except Exception as e:
             print(f"[WARN] Failed to write log.txt: {e}", file=sys.stderr)
