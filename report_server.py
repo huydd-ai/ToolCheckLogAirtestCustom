@@ -178,6 +178,65 @@ class ReportHandler(SimpleHTTPRequestHandler):
             }
         self._json(200, {"job_id": job_id})
 
+    def _handle_rerun_status(self, job_id: str) -> None:
+        with _jobs_lock:
+            job = _jobs.get(job_id)
+        if job is None:
+            self._json(404, {"error": "unknown job"})
+            return
+        if job["status"] == "running":
+            rc = job["proc"].poll()
+            if rc is not None:
+                with _jobs_lock:
+                    job = _jobs.get(job_id, job)
+                    job["exit_code"] = rc
+                    job["status"] = "done" if rc == 0 else "failed"
+                    job["new_folder"] = _find_newest_folder(REPORT_ROOT, job["stem"])
+        self._json(200, {
+            "status": job["status"],
+            "new_folder": job.get("new_folder"),
+            "exit_code": job.get("exit_code"),
+        })
+
+    def _handle_api_runs(self) -> None:
+        from aggregate_report import scan_runs
+        entries = scan_runs(REPORT_ROOT)
+        folder_names = [e.folder for e in entries]
+        etag = _compute_etag(folder_names)
+        client_etag = self.headers.get("If-None-Match", "")
+        if client_etag == etag:
+            self.send_response(304)
+            self.end_headers()
+            return
+        data = [
+            {
+                "stem": e.stem,
+                "when": e.when.isoformat(),
+                "status": e.status,
+                "folder": e.folder,
+                "report_href": e.report_href,
+            }
+            for e in entries
+        ]
+        body = json.dumps(data).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("ETag", etag)
+        self.end_headers()
+        self.wfile.write(body)
+
+    def do_GET(self):
+        # Strip query/fragment before route matching (same as translate_path)
+        clean = self.path.split("?", 1)[0].split("#", 1)[0]
+        if clean.startswith("/rerun-status/"):
+            job_id = clean.removeprefix("/rerun-status/")
+            self._handle_rerun_status(job_id)
+            return
+        if clean == "/api/runs":
+            self._handle_api_runs()
+            return
+        super().do_GET()
+
     def log_message(self, fmt, *args):
         sys.stderr.write(f"[report_server] {args[0]}\n")
 

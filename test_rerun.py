@@ -163,3 +163,94 @@ def test_rerun_concurrent_guard(tmp_path):
                 except Exception:
                     pass
         server.shutdown()
+
+
+# ── /rerun-status endpoint ────────────────────────────────────────────────────
+
+def _get(url: str, headers: dict | None = None) -> tuple[int, bytes]:
+    req = urllib.request.Request(url, headers=headers or {})
+    try:
+        with urllib.request.urlopen(req) as r:
+            return r.status, r.read()
+    except urllib.error.HTTPError as e:
+        return e.code, e.read()
+
+
+def test_rerun_status_unknown_job(tmp_path):
+    server, _ = _make_test_server(tmp_path, 17075)
+    try:
+        status, body = _get("http://127.0.0.1:17075/rerun-status/no-such-id")
+        assert status == 404
+        assert b"unknown job" in body
+    finally:
+        server.shutdown()
+
+
+def test_rerun_status_running_then_done(tmp_path):
+    # Inject a fake finished job AFTER _make_test_server clears _jobs
+    server, _ = _make_test_server(tmp_path, 17076)
+    try:
+        import subprocess
+        fake_proc = subprocess.Popen(
+            [__import__("sys").executable, "-c", "import sys; sys.exit(0)"]
+        )
+        fake_proc.wait()  # already finished with rc=0
+        job_id = "test-job-0000"
+        report_server._jobs[job_id] = {
+            "job_id": job_id,
+            "stem": "tc99_fake",
+            "air_path": "/fake/tc99.air",
+            "proc": fake_proc,
+            "status": "running",  # not yet resolved by server
+            "new_folder": None,
+            "exit_code": None,
+            "started": time.time(),
+        }
+        status, body = _get(f"http://127.0.0.1:17076/rerun-status/{job_id}")
+        data = json.loads(body)
+        assert status == 200
+        assert data["status"] in ("done", "failed")
+        assert data["exit_code"] == 0
+    finally:
+        server.shutdown()
+
+
+# ── /api/runs endpoint ────────────────────────────────────────────────────────
+
+def test_api_runs_returns_json(tmp_path):
+    folder = tmp_path / "tc01_login_20260619_100000"
+    folder.mkdir()
+    (folder / "log.txt").write_text(
+        "AIR_PATH=/tc01.air\n# tc01_login\n# Status: PASS\n", encoding="utf-8"
+    )
+    server, _ = _make_test_server(tmp_path, 17077)
+    try:
+        status, body = _get("http://127.0.0.1:17077/api/runs")
+        assert status == 200
+        data = json.loads(body)
+        assert isinstance(data, list)
+        assert data[0]["stem"] == "tc01_login"
+        assert data[0]["status"] == "PASS"
+    finally:
+        server.shutdown()
+
+
+def test_api_runs_etag_304(tmp_path):
+    folder = tmp_path / "tc01_login_20260619_100000"
+    folder.mkdir()
+    (folder / "log.txt").write_text(
+        "AIR_PATH=/tc01.air\n# tc01_login\n# Status: PASS\n", encoding="utf-8"
+    )
+    server, _ = _make_test_server(tmp_path, 17078)
+    try:
+        status1, body1 = _get("http://127.0.0.1:17078/api/runs")
+        assert status1 == 200
+        # parse ETag from response headers — we need urlopen for headers
+        req = urllib.request.Request("http://127.0.0.1:17078/api/runs")
+        with urllib.request.urlopen(req) as r:
+            etag = r.headers.get("ETag", "")
+        assert etag, "ETag header should be present"
+        status2, _ = _get("http://127.0.0.1:17078/api/runs", headers={"If-None-Match": etag})
+        assert status2 == 304
+    finally:
+        server.shutdown()
