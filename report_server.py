@@ -159,8 +159,8 @@ class ReportHandler(SimpleHTTPRequestHandler):
             try:
                 proc = subprocess.Popen(
                     [sys.executable, str(dagster_run), air_path],
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.STDOUT,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
                 )
             except FileNotFoundError:
                 self._json(500, {"error": "dagster_run.py not found"})
