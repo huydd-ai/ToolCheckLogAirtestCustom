@@ -254,3 +254,38 @@ def test_api_runs_etag_304(tmp_path):
         assert status2 == 304
     finally:
         server.shutdown()
+
+
+# ── dashboard HTML ────────────────────────────────────────────────────────────
+
+from aggregate_report import render_html, group_by_date, RunEntry
+from datetime import datetime
+
+
+def _make_entry(stem="tc01_login", status="PASS"):
+    return RunEntry(
+        stem=stem,
+        when=datetime(2026, 6, 19, 10, 0, 0),
+        status=status,
+        folder=f"{stem}_20260619_100000",
+        report_href=f"{stem}_20260619_100000/report.html",
+    )
+
+
+def test_dashboard_has_rerun_button():
+    html = render_html(group_by_date([_make_entry()]))
+    assert 'class="rerun-btn"' in html
+    assert 'data-folder="tc01_login_20260619_100000"' in html
+
+
+def test_dashboard_has_rerun_status_span():
+    html = render_html(group_by_date([_make_entry()]))
+    assert 'class="rerun-status"' in html
+
+
+def test_dashboard_has_rerun_js_functions():
+    html = render_html(group_by_date([_make_entry()]))
+    assert "rerunTest" in html
+    assert "pollRerunStatus" in html
+    assert "refreshRunList" in html
+    assert "clearInterval" in html

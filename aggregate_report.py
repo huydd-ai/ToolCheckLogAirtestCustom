@@ -192,6 +192,24 @@ li:hover { border-color: var(--border); transform: translateX(4px); }
   justify-content: center;
 }
 .delete-btn:hover { background: rgba(239,68,68,0.1); color: var(--fail); }
+.rerun-btn {
+  background: none;
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  cursor: pointer;
+  padding: 4px 10px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  transition: all 0.2s;
+}
+.rerun-btn:hover { background: rgba(59,130,246,0.15); }
+.rerun-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.rerun-status {
+  font-size: 11px;
+  color: var(--text-dim);
+  min-width: 64px;
+}
 .empty-state {
   text-align: center;
   padding: 40px;
@@ -301,6 +319,65 @@ async function deleteAllRuns(btn, dateStr) {
     document.querySelectorAll('.delete-btn, .delete-all-btn').forEach(btn => btn.remove());
   }
 })();
+
+var _runsEtag = '';
+
+async function rerunTest(btn, folder) {
+  btn.disabled = true;
+  btn.textContent = '…';
+  var statusEl = document.querySelector('.rerun-status[data-folder="' + folder + '"]');
+  if (statusEl) statusEl.textContent = 'Starting…';
+  try {
+    var r = await fetch('/rerun/' + encodeURIComponent(folder), {method: 'POST'});
+    var data = await r.json();
+    if (!r.ok) {
+      btn.disabled = false;
+      btn.textContent = '↺ Rerun';
+      if (statusEl) statusEl.textContent = data.error || 'Error';
+      return;
+    }
+    if (statusEl) statusEl.textContent = 'Running…';
+    pollRerunStatus(btn, folder, data.job_id, statusEl);
+  } catch (err) {
+    btn.disabled = false;
+    btn.textContent = '↺ Rerun';
+    if (statusEl) statusEl.textContent = 'Server offline';
+  }
+}
+
+function pollRerunStatus(btn, folder, jobId, statusEl) {
+  var intervalId = setInterval(async function() {
+    try {
+      var r = await fetch('/rerun-status/' + encodeURIComponent(jobId));
+      var data = await r.json();
+      if (data.status !== 'running') {
+        clearInterval(intervalId);
+        btn.disabled = false;
+        btn.textContent = '↺ Rerun';
+        if (statusEl) statusEl.textContent = data.status === 'done' ? '✓ Done' : '✗ Failed';
+        refreshRunList();
+      }
+    } catch (err) {
+      clearInterval(intervalId);
+      btn.disabled = false;
+      btn.textContent = '↺ Rerun';
+      if (statusEl) statusEl.textContent = 'Error';
+    }
+  }, 3000);
+}
+
+async function refreshRunList() {
+  try {
+    var headers = _runsEtag ? {'If-None-Match': _runsEtag} : {};
+    var r = await fetch('/api/runs', {headers: headers});
+    if (r.status === 304) return;
+    if (!r.ok) return;
+    _runsEtag = r.headers.get('ETag') || '';
+    window.location.href = window.location.pathname + '?t=' + new Date().getTime();
+  } catch (err) {
+    // server offline — skip refresh
+  }
+}
 """
 
 def _count_statuses(rows: list[RunEntry]) -> str:
@@ -357,6 +434,8 @@ def render_html(groups: list[tuple[str, list[RunEntry]]]) -> str:
                 html.append('</div>')
                 html.append('<div class="run-meta">')
                 html.append(f'<span class="run-time">{time_str}</span>')
+                html.append(f'<button class="rerun-btn" data-folder="{folder}" onclick="rerunTest(this, \'{folder}\')" title="Rerun this test">↺ Rerun</button>')
+                html.append(f'<span class="rerun-status" data-folder="{folder}"></span>')
                 html.append(f'<button class="delete-btn" title="Delete Report" onclick="deleteRun(event, \'{folder}\')">')
                 html.append('<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path></svg>')
                 html.append('</button>')
