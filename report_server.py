@@ -199,31 +199,34 @@ class ReportHandler(SimpleHTTPRequestHandler):
         })
 
     def _handle_api_runs(self) -> None:
-        from aggregate_report import scan_runs
-        entries = scan_runs(REPORT_ROOT)
-        folder_names = [e.folder for e in entries]
-        etag = _compute_etag(folder_names)
-        client_etag = self.headers.get("If-None-Match", "")
-        if client_etag == etag:
-            self.send_response(304)
+        try:
+            from aggregate_report import scan_runs
+            entries = scan_runs(REPORT_ROOT)
+            folder_names = [e.folder for e in entries]
+            etag = _compute_etag(folder_names)
+            client_etag = self.headers.get("If-None-Match", "")
+            if client_etag == etag:
+                self.send_response(304)
+                self.end_headers()
+                return
+            data = [
+                {
+                    "stem": e.stem,
+                    "when": e.when.isoformat(),
+                    "status": e.status,
+                    "folder": e.folder,
+                    "report_href": e.report_href,
+                }
+                for e in entries
+            ]
+            body = json.dumps(data).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("ETag", etag)
             self.end_headers()
-            return
-        data = [
-            {
-                "stem": e.stem,
-                "when": e.when.isoformat(),
-                "status": e.status,
-                "folder": e.folder,
-                "report_href": e.report_href,
-            }
-            for e in entries
-        ]
-        body = json.dumps(data).encode()
-        self.send_response(200)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("ETag", etag)
-        self.end_headers()
-        self.wfile.write(body)
+            self.wfile.write(body)
+        except Exception as e:
+            self._json(500, {"error": str(e)})
 
     def do_GET(self):
         # Strip query/fragment before route matching (same as translate_path)
