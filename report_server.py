@@ -9,14 +9,47 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import shutil
+import subprocess
 import sys
-from http.server import HTTPServer, SimpleHTTPRequestHandler
+import threading
+import time
+import uuid
+from http.server import HTTPServer, SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from aggregate_report import regenerate_global_report
+
+
+def extract_air_path(log_path: Path) -> str | None:
+    """Read AIR_PATH= from first line of log.txt. Returns None if absent or unreadable."""
+    try:
+        with log_path.open("r", encoding="utf-8", errors="replace") as f:
+            first_line = f.readline().rstrip("\n")
+    except OSError:
+        return None
+    if first_line.startswith("AIR_PATH="):
+        return first_line[len("AIR_PATH="):]
+    return None
+
+
+def _find_newest_folder(report_root: Path, stem: str) -> str | None:
+    """Return the lexicographically latest folder name matching <stem>_YYYYMMDD_HHMMSS."""
+    pattern = re.compile(rf"^{re.escape(stem)}_\d{{8}}_\d{{6}}$")
+    candidates = [
+        child.name
+        for child in report_root.iterdir()
+        if child.is_dir() and pattern.match(child.name)
+    ]
+    return max(candidates) if candidates else None
+
+
+def _compute_etag(folder_names: list[str]) -> str:
+    """Stable 16-char hex ETag from sorted folder name list."""
+    return hashlib.md5(",".join(sorted(folder_names)).encode()).hexdigest()[:16]
 
 
 REPORT_ROOT = Path(__file__).parent / "report_run"
