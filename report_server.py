@@ -18,7 +18,7 @@ import sys
 import threading
 import time
 import uuid
-from http.server import HTTPServer, SimpleHTTPRequestHandler, ThreadingHTTPServer
+from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from aggregate_report import regenerate_global_report
@@ -51,6 +51,9 @@ def _compute_etag(folder_names: list[str]) -> str:
     """Stable 16-char hex ETag from sorted folder name list."""
     return hashlib.md5(",".join(sorted(folder_names)).encode()).hexdigest()[:16]
 
+
+_jobs: dict[str, dict] = {}
+_jobs_lock = threading.Lock()
 
 REPORT_ROOT = Path(__file__).parent / "report_run"
 
@@ -132,6 +135,13 @@ class ReportHandler(SimpleHTTPRequestHandler):
     def log_message(self, fmt, *args):
         sys.stderr.write(f"[report_server] {args[0]}\n")
 
+    def _json(self, status: int, data: dict) -> None:
+        body = json.dumps(data).encode()
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        self.wfile.write(body)
+
 
 def main():
     parser = argparse.ArgumentParser(description="Dagster test report server")
@@ -144,7 +154,7 @@ def main():
         REPORT_ROOT_PATH.mkdir(parents=True)
         print(f"[report_server] Created root: {REPORT_ROOT_PATH}")
 
-    server = HTTPServer(("0.0.0.0", args.port), ReportHandler)
+    server = ThreadingHTTPServer(("0.0.0.0", args.port), ReportHandler)
     print(f"[report_server] Serving {REPORT_ROOT_PATH} at http://localhost:{args.port}")
     print(f"[report_server] DELETE endpoint: http://localhost:{args.port}/delete/<folder>")
     print(f"[report_server] DELETE-DATE endpoint: http://localhost:{args.port}/delete-date/<YYYY-MM-DD>")
@@ -152,6 +162,13 @@ def main():
         server.serve_forever()
     except KeyboardInterrupt:
         print("\n[report_server] Shutting down")
+        with _jobs_lock:
+            for job in _jobs.values():
+                if job["status"] == "running":
+                    try:
+                        job["proc"].terminate()
+                    except OSError:
+                        pass
         server.server_close()
 
 
