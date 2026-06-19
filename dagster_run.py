@@ -105,7 +105,7 @@ def main():
     # 6. Execute Tests
     run_had_failure = False
     for air_path in tests:
-        py_scripts = list(air_path.glob("*.py"))
+        py_scripts = [p for p in air_path.glob("*.py") if p.name != "__init__.py"]
         if not py_scripts:
             print(f"[WARN] {air_path.name}: no .py script found, skipping", file=sys.stderr)
             continue

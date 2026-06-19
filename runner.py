@@ -89,7 +89,7 @@ def run_single_test(air_path: Path, py_script: Path, mode: str, device_id: str, 
             if any(s.get("behaviour") == err["msg"] for s in steps):
                 continue
             steps.append({
-                "name": f"[ERROR] {err['logger']}",
+                "name": f"[ERROR] {err.get('step') or err['logger']}",
                 "action": "logged_error",
                 "status": "FAIL",
                 "screenshot": err.get("screenshot"),
@@ -114,11 +114,15 @@ def run_single_test(air_path: Path, py_script: Path, mode: str, device_id: str, 
                             if error_top is None:
                                 error_top = RuntimeError(err_msg)
                             if not any(s.get("behaviour") == err_msg for s in steps):
+                                step_name = data_dict.get("name") or "[ERROR] Airtest Assertion"
+                                last_screen = next(
+                                    (s["screenshot"] for s in reversed(steps) if s.get("screenshot")), None
+                                )
                                 steps.append({
-                                    "name": "[ERROR] Airtest Assertion",
+                                    "name": step_name,
                                     "action": "assert_failed",
                                     "status": "FAIL",
-                                    "screenshot": None,
+                                    "screenshot": last_screen,
                                     "behaviour": err_msg,
                                     "duration": 0,
                                 })
@@ -142,7 +146,7 @@ def run_single_test(air_path: Path, py_script: Path, mode: str, device_id: str, 
             print(f"[WARN] Failed to generate summary report: {e}", file=sys.stderr)
 
         try:
-            write_log_txt(out_dir, air_path.stem, steps, error_top)
+            write_log_txt(out_dir, air_path.stem, steps, error_top, air_path=air_path)
             print(f"[INFO] log.txt written with {len(steps)} steps")
         except Exception as e:
             print(f"[WARN] Failed to write log.txt: {e}", file=sys.stderr)

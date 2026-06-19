@@ -4,11 +4,20 @@ from datetime import datetime
 from pathlib import Path
 
 
-def write_log_txt(out_dir: Path, tc_name: str, steps: list[dict], error_top: Exception | None) -> None:
+def write_log_txt(
+    out_dir: Path,
+    tc_name: str,
+    steps: list[dict],
+    error_top: Exception | None,
+    air_path: Path | None = None,
+) -> None:
     """Write structured log.txt from captured steps."""
     log_file = out_dir / "log.txt"
     overall_status = "FAIL" if error_top or any(s["status"] == "FAIL" for s in steps) else "PASS"
-    lines = [
+    lines = []
+    if air_path is not None:
+        lines.append(f"AIR_PATH={air_path.resolve()}")
+    lines += [
         f"# {tc_name}",
         f"# Run: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
         f"# Status: {overall_status}",
