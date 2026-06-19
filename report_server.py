@@ -129,8 +129,54 @@ class ReportHandler(SimpleHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body.encode())
             return
+        if self.path.startswith("/rerun/"):
+            folder_name = self.path.removeprefix("/rerun/")
+            self._handle_rerun(folder_name)
+            return
         self.send_response(405)
         self.end_headers()
+
+    def _handle_rerun(self, folder_name: str) -> None:
+        target = REPORT_ROOT / folder_name
+        if not target.is_dir():
+            self._json(404, {"error": "not found"})
+            return
+        air_path = extract_air_path(target / "log.txt")
+        if air_path is None:
+            self._json(422, {"error": "no air_path in log"})
+            return
+        m = re.match(r"^(.+)_\d{8}_\d{6}$", folder_name)
+        if not m:
+            self._json(400, {"error": "invalid folder name"})
+            return
+        stem = m.group(1)
+        with _jobs_lock:
+            for job in _jobs.values():
+                if job["stem"] == stem and job["status"] == "running":
+                    self._json(409, {"error": "already running"})
+                    return
+            dagster_run = Path(__file__).parent / "dagster_run.py"
+            try:
+                proc = subprocess.Popen(
+                    [sys.executable, str(dagster_run), air_path],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                )
+            except FileNotFoundError:
+                self._json(500, {"error": "dagster_run.py not found"})
+                return
+            job_id = str(uuid.uuid4())
+            _jobs[job_id] = {
+                "job_id": job_id,
+                "stem": stem,
+                "air_path": air_path,
+                "proc": proc,
+                "status": "running",
+                "new_folder": None,
+                "exit_code": None,
+                "started": time.time(),
+            }
+        self._json(200, {"job_id": job_id})
 
     def log_message(self, fmt, *args):
         sys.stderr.write(f"[report_server] {args[0]}\n")
