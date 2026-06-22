@@ -43,7 +43,13 @@ class OpenCVAnnotator:
         if not HAS_CV2 or not screenshot_path:
             return
         try:
-            img = cv2.imread(screenshot_path)
+            path_obj = Path(screenshot_path)
+            if not path_obj.is_absolute():
+                from airtest.core.settings import Settings as ST
+                if ST.LOG_DIR:
+                    path_obj = Path(ST.LOG_DIR) / screenshot_path
+            
+            img = cv2.imread(str(path_obj))
             if img is None:
                 return
             annotated = self._annotate_frame(img, name, action, status, timestamp)
@@ -84,13 +90,19 @@ class OpenCVAnnotator:
         try:
             h, w = self.frames[0].shape[:2]
             writer = None
-            for codec in ['avc1', 'mp4v', 'X264']:
-                fourcc = cv2.VideoWriter_fourcc(*codec)
-                candidate = cv2.VideoWriter(str(output_path), fourcc, OUTPUT_FPS, (w, h))
-                if candidate.isOpened():
-                    writer = candidate
-                    break
+            fourcc = cv2.VideoWriter_fourcc(*'avc1')
+            candidate = cv2.VideoWriter(str(output_path), cv2.CAP_MSMF, fourcc, float(OUTPUT_FPS), (w, h))
+            if candidate.isOpened():
+                writer = candidate
+            else:
                 candidate.release()
+                for codec in ['mp4v', 'X264']:
+                    fourcc = cv2.VideoWriter_fourcc(*codec)
+                    candidate = cv2.VideoWriter(str(output_path), fourcc, float(OUTPUT_FPS), (w, h))
+                    if candidate.isOpened():
+                        writer = candidate
+                        break
+                    candidate.release()
             if writer is None:
                 logger.warning("No working codec found for %s", output_path)
                 return None

@@ -8,9 +8,10 @@ from airtest.core.settings import Settings as ST
 
 from dagster.reporting import write_log_txt, generate_html, generate_summary_report
 from dagster.step_capture import clear_steps, get_steps
+from dagster.OpenCVAnnotator import OpenCVAnnotator
 
 
-def run_single_test(air_path: Path, py_script: Path, mode: str, device_id: str, report_root: Path, scrcpy_path: str) -> bool:
+def run_single_test(air_path: Path, py_script: Path, mode: str, device_id: str, report_root: Path) -> bool:
     """Run a single Airtest module, capture steps, video, and generate report. Returns True if failed."""
     module_name = py_script.stem
     ts_str = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -23,16 +24,14 @@ def run_single_test(air_path: Path, py_script: Path, mode: str, device_id: str, 
 
     recorder = None
     recording_path = out_dir / f"recording_{device_id}_{module_name}.mp4"
+    recordings = []
     
     try:
         # pyrefly: ignore [missing-import]
-        from ScrcpyRecorder import ScrcpyRecorder
-        recorder = ScrcpyRecorder(
+        from dagster.OpenCVRecorder import OpenCVRecorder
+        recorder = OpenCVRecorder(
             output=str(recording_path),
-            device=device_id,
-            scrcpy_path=scrcpy_path,
-            bit_rate="20M",
-            video_codec_options="frame-rate=60",
+            fps=10,
         )
         recorder.start()
     except Exception as e:
@@ -41,6 +40,7 @@ def run_single_test(air_path: Path, py_script: Path, mode: str, device_id: str, 
     from dagster.error_capture import clear_errors
     clear_errors()
     clear_steps()
+    OpenCVAnnotator.reset(test_name=module_name)
     error_top = None
     status = "PASS"
 
@@ -64,6 +64,13 @@ def run_single_test(air_path: Path, py_script: Path, mode: str, device_id: str, 
                 recorder.stop()
             except Exception as e:
                 print(f"[WARN] recorder stop: {e}", file=sys.stderr)
+
+        try:
+            annotator = OpenCVAnnotator()
+            annotated_path = out_dir / f"recording_{device_id}_{module_name}_steps.mp4"
+            annotator.finalize(status, annotated_path)
+        except Exception as e:
+            print(f"[WARN] Failed to create step highlights video: {e}", file=sys.stderr)
         sys.path.remove(str(air_path))
 
         try:
@@ -131,7 +138,7 @@ def run_single_test(air_path: Path, py_script: Path, mode: str, device_id: str, 
             except Exception as e:
                 print(f"[WARN] Failed to parse airtest.log: {e}", file=sys.stderr)
 
-        recordings = sorted(out_dir.glob("recording_*.mp4"))
+        recordings = [*recordings, *sorted(out_dir.glob("recording_*.mp4"))]
 
         try:
             generate_html(air_path, out_dir, mode, ndjson_name="airtest.log", recordings=recordings, status=status)

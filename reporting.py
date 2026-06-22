@@ -277,7 +277,8 @@ td .error-text{{color:#ff7b72;font-size:12px;max-width:200px;overflow:hidden;tex
 
     for rec in recordings:
         safe_rec = _html.escape(rec.name, quote=True)
-        parts.append(f'<br><a class="rec-badge" href="{safe_rec}">&#9654; {safe_rec}</a>')
+        label = "Step Highlights" if "_steps" in rec.stem else safe_rec
+        parts.append(f'<br><a class="rec-badge" href="{safe_rec}">&#9654; {label}</a>')
 
     parts.append("""</div></div>""")
 

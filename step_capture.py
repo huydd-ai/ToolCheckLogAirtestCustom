@@ -1,3 +1,4 @@
+from datetime import datetime as _datetime
 import time as _time
 from pathlib import Path
 from typing import Any, Callable
@@ -11,6 +12,7 @@ _last: str | None = None       # persistent: last step that ran, never cleared
 _orig_run_step = _tf.run_step
 
 from dagster.log_utils import latest_screenshot as _latest_screenshot
+from dagster.OpenCVAnnotator import OpenCVAnnotator as _Annotator
 
 
 def get_current() -> str | None:
@@ -83,6 +85,16 @@ def _hooked_run_step(name: str, action: Callable[..., Any], *args: Any, **kwargs
         raise
     finally:
         _current = None   # clear in-flight; _last stays
+        try:
+            _Annotator().add_step(
+                name=step["name"],
+                action=step["action"],
+                screenshot_path=step.get("screenshot"),
+                status=step.get("status") or "PASS",
+                timestamp=_datetime.now().strftime("%H:%M:%S"),
+            )
+        except Exception:
+            pass
 
 
 def patch_run_step():

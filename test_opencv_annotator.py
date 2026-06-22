@@ -6,7 +6,6 @@ import pytest
 
 from dagster.OpenCVAnnotator import (
     OpenCVAnnotator,
-    HAS_CV2 as MODULE_HAS_CV2,
     FRAMES_OPENING,
     FRAMES_PER_STEP,
     FRAMES_CROSSFADE,
@@ -79,7 +78,7 @@ def test_finalize_produces_valid_mp4(tmp_path):
     cap = cv2.VideoCapture(str(out))
     assert cap.isOpened()
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    expected = FRAMES_OPENING + 2 * FRAMES_PER_STEP + 1 * FRAMES_CROSSFADE + FRAMES_ENDING
+    expected = FRAMES_OPENING + 2 * FRAMES_PER_STEP + FRAMES_CROSSFADE + FRAMES_ENDING
     assert total_frames == expected
     assert int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)) == 200
     assert int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)) == 100

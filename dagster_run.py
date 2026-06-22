@@ -29,13 +29,7 @@ from dagster.step_capture import patch_run_step
 from dagster.aggregate_report import regenerate_global_report
 
 def main():
-    # 1a. Self-update from origin (best-effort, never blocks the run).
-    # Parent-only: when --device <serial> is in argv we are a parallel child
-    # and the parent already pulled - skip to avoid concurrent `git pull`.
-    from dagster.updater import check_and_update
-    check_and_update(repo_root=_dagster_dir, is_parallel_child=("--device" in sys.argv))
-
-    # 1b. Setup Environment & Capture Hooks
+    # 1. Setup Environment & Capture Hooks
     setup_console_logging(LOG_LEVEL)
     patch_run_step()
 
@@ -53,29 +47,7 @@ def main():
     args, _ = parser.parse_known_args(sys.argv[1:])
 
     # 3. Test Discovery
-    paths: list[Path] = []
-    for a in args.target:
-        if any(c in a for c in "*?["):
-            matches = _glob.glob(a, recursive=True)
-            if not matches:
-                print(f"[WARN] no match for glob: {a}", file=sys.stderr)
-                continue
-            paths.extend(Path(m) for m in matches)
-        else:
-            paths.append(Path(a))
-
-    tests: list[Path] = []
-    for p in paths:
-        p = p.resolve()
-        if p.suffix == ".air" and p.exists():
-            tests.append(p)
-        elif p.is_dir():
-            found = sorted(p.glob("*.air")) or sorted(p.rglob("*.air"))
-            tests.extend(found)
-
-    seen: set[Path] = set()
-    tests = [t for t in tests if not (t in seen or seen.add(t))]
-
+    tests = sorted({p for a in args.target for m in _glob.glob(a, recursive=True) or [a] for p in Path(m).resolve().rglob("*.air") if p.is_dir()} | {Path(a).resolve() for a in args.target if Path(a).resolve().suffix == ".air"})
     if not tests:
         sys.exit(f"[ERROR] No .air projects found in: {args.target}")
         
@@ -98,7 +70,6 @@ def main():
     # 5. Output Configuration
     report_root = _dagster_dir / "report_run"
     report_root.mkdir(parents=True, exist_ok=True)
-    scrcpy_path = str(_dagster_dir / "scrcpy-win64" / "scrcpy.exe")
 
     # 6. Execute Tests
     run_had_failure = False
@@ -107,7 +78,7 @@ def main():
         if not py_scripts:
             print(f"[WARN] {air_path.name}: no .py script found, skipping", file=sys.stderr)
             continue
-        failed = run_single_test(air_path, py_scripts[0], args.mode, device_id, report_root, scrcpy_path)
+        failed = run_single_test(air_path, py_scripts[0], args.mode, device_id, report_root)
         if failed:
             run_had_failure = True
 
