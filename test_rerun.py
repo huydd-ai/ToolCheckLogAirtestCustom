@@ -390,6 +390,39 @@ def test_run_accepts_valid_air_returns_job_id(tmp_path, monkeypatch):
         server.shutdown()
 
 
+def test_run_job_served_by_rerun_status(tmp_path, monkeypatch):
+    """A /run-launched job shares the job-dict shape used by /rerun-status."""
+    import report_server
+    monkeypatch.setattr(report_server, "PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr(report_server, "TEST_ROOT", (tmp_path / "Test").resolve())
+    air = tmp_path / "Test" / "HeartSystem" / "tc01_a.air"
+    air.parent.mkdir(parents=True)
+    air.mkdir()  # .air is a directory containing a .py (matches dagster layout)
+    (air / "tc01_a.py").write_text("def main(): pass\n", encoding="utf-8")
+    server, _ = _make_test_server(tmp_path, 17086)
+    try:
+        req = urllib.request.Request(
+            "http://127.0.0.1:17086/run", method="POST",
+            data=json.dumps({"air_path": "Test/HeartSystem/tc01_a.air"}).encode(),
+            headers={"Content-Type": "application/json"},
+        )
+        with urllib.request.urlopen(req) as r:
+            status, body = r.status, json.loads(r.read())
+        assert status == 200
+        job_id = body["job_id"]
+        # Same job-dict must be queryable through /rerun-status.
+        s2, b2 = _get(f"http://127.0.0.1:17086/rerun-status/{job_id}")
+        assert s2 == 200
+        data = json.loads(b2)
+        assert data["status"] in ("running", "done", "failed")
+    finally:
+        with report_server._jobs_lock:
+            for job in report_server._jobs.values():
+                try: job["proc"].terminate()
+                except Exception: pass
+        server.shutdown()
+
+
 # ── /run malformed body ───────────────────────────────────────────────────────
 
 def test_run_malformed_content_length_returns_400(tmp_path):

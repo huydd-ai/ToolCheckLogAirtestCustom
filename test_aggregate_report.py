@@ -401,14 +401,16 @@ def test_scan_catalog_air_as_directories(tmp_path):
 
 def test_build_catalog_joins_last_run(tmp_path):
     from aggregate_report import build_catalog
-    (tmp_path / "HeartSystem").mkdir()
-    (tmp_path / "HeartSystem" / "tc01_a.air").write_text("", encoding="utf-8")
-    (tmp_path / "HeartSystem" / "tc02_b.air").write_text("", encoding="utf-8")
+    # test_root named "Test" so air_path prefix == test_root.name == "Test"
+    test_root = tmp_path / "Test"
+    (test_root / "HeartSystem").mkdir(parents=True)
+    (test_root / "HeartSystem" / "tc01_a.air").write_text("", encoding="utf-8")
+    (test_root / "HeartSystem" / "tc02_b.air").write_text("", encoding="utf-8")
     entries = [
         _entry_s("tc01_a", "2026-06-12 09:00:00", "FAIL", "HeartSystem"),
         _entry_s("tc01_a", "2026-06-12 11:00:00", "PASS", "HeartSystem"),  # newer wins
     ]
-    cat = build_catalog(tmp_path, entries)
+    cat = build_catalog(test_root, entries)
     suite, tests = cat[0]
     assert suite == "HeartSystem"
     by_stem = {t["stem"]: t for t in tests}

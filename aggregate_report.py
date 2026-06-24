@@ -132,7 +132,7 @@ def build_catalog(
             run = newest.get((suite, stem))
             tests.append({
                 "stem": stem,
-                "air_path": f"Test/{suite}/{stem}.air",
+                "air_path": f"{test_root.name}/{suite}/{stem}.air",
                 "last_status": run.status if run else None,
                 "last_href": run.report_href if run else None,
             })
