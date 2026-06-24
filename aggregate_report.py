@@ -111,6 +111,16 @@ def group_by_date(entries: list[RunEntry]) -> list[tuple[str, list[RunEntry]]]:
         rows.sort(key=lambda r: r.when, reverse=True)
     return sorted(by_date.items(), key=lambda kv: kv[0], reverse=True)
 
+def group_by_suite_then_date(
+    entries: list[RunEntry],
+) -> list[tuple[str, list[tuple[str, list[RunEntry]]]]]:
+    by_suite: dict[str, list[RunEntry]] = {}
+    for e in entries:
+        by_suite.setdefault(e.suite, []).append(e)
+    # "unknown" sorts last, others alphabetical
+    suite_keys = sorted(by_suite, key=lambda s: (s == "unknown", s))
+    return [(s, group_by_date(by_suite[s])) for s in suite_keys]
+
 _CSS = """
 body { padding: 40px 24px; }
 .container {

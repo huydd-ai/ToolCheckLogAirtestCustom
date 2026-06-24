@@ -311,3 +311,37 @@ def test_scan_runs_suite_unknown_when_no_air_path(tmp_path):
     _make_run(tmp_path, "tc01_foo_20260612_102041", "# Status: PASS")  # helper writes no AIR_PATH
     entries = scan_runs(tmp_path)
     assert entries[0].suite == "unknown"
+
+
+def _entry_s(stem, dt_str, status, suite):
+    dt = datetime.strptime(dt_str, "%Y-%m-%d %H:%M:%S")
+    folder = f"{stem}_{dt.strftime('%Y%m%d_%H%M%S')}"
+    return RunEntry(stem, dt, status, folder, f"{folder}/report.html", suite=suite)
+
+
+def test_group_by_suite_then_date_nests():
+    from aggregate_report import group_by_suite_then_date
+    entries = [
+        _entry_s("a", "2026-06-12 10:00:00", "PASS", "HeartSystem"),
+        _entry_s("b", "2026-06-11 10:00:00", "PASS", "HeartSystem"),
+        _entry_s("c", "2026-06-12 10:00:00", "PASS", "DailyMission"),
+    ]
+    groups = group_by_suite_then_date(entries)
+    suites = [s for s, _ in groups]
+    assert suites == ["DailyMission", "HeartSystem"]  # alpha
+    heart = dict(groups)["HeartSystem"]
+    assert [d for d, _ in heart] == ["2026-06-12", "2026-06-11"]  # date desc
+
+
+def test_group_by_suite_then_date_unknown_sorts_last():
+    from aggregate_report import group_by_suite_then_date
+    entries = [
+        _entry_s("a", "2026-06-12 10:00:00", "PASS", "unknown"),
+        _entry_s("b", "2026-06-12 10:00:00", "PASS", "HeartSystem"),
+    ]
+    assert [s for s, _ in group_by_suite_then_date(entries)] == ["HeartSystem", "unknown"]
+
+
+def test_group_by_suite_then_date_empty():
+    from aggregate_report import group_by_suite_then_date
+    assert group_by_suite_then_date([]) == []
