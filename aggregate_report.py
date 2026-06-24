@@ -102,6 +102,20 @@ def scan_runs(report_root: Path) -> list[RunEntry]:
         )
     return entries
 
+def scan_catalog(test_root: Path) -> dict[str, list[str]]:
+    """Map suite folder -> sorted .air stems under test_root/<suite>/. All test cases,
+    run or not. Globbing *.air files skips __pycache__ dirs naturally."""
+    if not test_root.exists():
+        return {}
+    catalog: dict[str, list[str]] = {}
+    for air in test_root.glob("*/*.air"):
+        if not air.is_file():
+            continue
+        catalog.setdefault(air.parent.name, []).append(air.stem)
+    for stems in catalog.values():
+        stems.sort()
+    return dict(sorted(catalog.items()))
+
 def group_by_date(entries: list[RunEntry]) -> list[tuple[str, list[RunEntry]]]:
     by_date: dict[str, list[RunEntry]] = {}
     for e in entries:

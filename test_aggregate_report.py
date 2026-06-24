@@ -345,3 +345,34 @@ def test_group_by_suite_then_date_unknown_sorts_last():
 def test_group_by_suite_then_date_empty():
     from aggregate_report import group_by_suite_then_date
     assert group_by_suite_then_date([]) == []
+
+
+def test_scan_catalog_lists_air_by_suite(tmp_path):
+    from aggregate_report import scan_catalog
+    (tmp_path / "HeartSystem").mkdir()
+    (tmp_path / "HeartSystem" / "tc01_a.air").write_text("", encoding="utf-8")
+    (tmp_path / "HeartSystem" / "tc02_b.air").write_text("", encoding="utf-8")
+    (tmp_path / "DailyMission").mkdir()
+    (tmp_path / "DailyMission" / "tc01_x.air").write_text("", encoding="utf-8")
+    cat = scan_catalog(tmp_path)
+    assert cat == {
+        "DailyMission": ["tc01_x"],
+        "HeartSystem": ["tc01_a", "tc02_b"],
+    }
+
+
+def test_scan_catalog_excludes_pycache(tmp_path):
+    from aggregate_report import scan_catalog
+    suite = tmp_path / "HeartSystem"
+    suite.mkdir()
+    (suite / "tc01_a.air").write_text("", encoding="utf-8")
+    pyc = suite / "__pycache__"
+    pyc.mkdir()
+    (pyc / "junk.air").write_text("", encoding="utf-8")  # must NOT appear
+    cat = scan_catalog(tmp_path)
+    assert cat == {"HeartSystem": ["tc01_a"]}
+
+
+def test_scan_catalog_missing_root(tmp_path):
+    from aggregate_report import scan_catalog
+    assert scan_catalog(tmp_path / "nope") == {}
