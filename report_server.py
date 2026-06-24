@@ -167,8 +167,8 @@ class ReportHandler(SimpleHTTPRequestHandler):
         self.end_headers()
 
     def _handle_run(self) -> None:
-        length = int(self.headers.get("Content-Length", "0") or "0")
         try:
+            length = int(self.headers.get("Content-Length", "0") or "0")
             payload = json.loads(self.rfile.read(length) or b"{}")
             air_path = payload.get("air_path", "")
         except (ValueError, OSError):

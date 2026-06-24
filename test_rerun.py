@@ -390,6 +390,49 @@ def test_run_accepts_valid_air_returns_job_id(tmp_path, monkeypatch):
         server.shutdown()
 
 
+# ── /run malformed body ───────────────────────────────────────────────────────
+
+def test_run_malformed_content_length_returns_400(tmp_path):
+    """A Content-Length header like 'abc' must return 400, not crash the handler."""
+    import http.client
+    server, _ = _make_test_server(tmp_path, 17084)
+    try:
+        conn = http.client.HTTPConnection("127.0.0.1", 17084)
+        # Send a raw POST with a non-numeric Content-Length header
+        conn.request(
+            "POST", "/run",
+            body=b"{}",
+            headers={"Content-Length": "abc", "Content-Type": "application/json"},
+        )
+        resp = conn.getresponse()
+        assert resp.status == 400
+        data = json.loads(resp.read())
+        assert "error" in data
+        conn.close()
+    finally:
+        server.shutdown()
+
+
+def test_run_invalid_json_body_returns_400(tmp_path):
+    """A body that is not valid JSON must return 400, not crash the handler."""
+    server, _ = _make_test_server(tmp_path, 17085)
+    try:
+        req = urllib.request.Request(
+            "http://127.0.0.1:17085/run", method="POST",
+            data=b"not-json-at-all",
+            headers={"Content-Type": "application/json"},
+        )
+        try:
+            with urllib.request.urlopen(req) as r:
+                status, body = r.status, json.loads(r.read())
+        except urllib.error.HTTPError as e:
+            status, body = e.code, json.loads(e.read())
+        assert status == 400
+        assert "error" in body
+    finally:
+        server.shutdown()
+
+
 # ── dashboard HTML ────────────────────────────────────────────────────────────
 
 from aggregate_report import render_html, group_by_date, group_by_suite_then_date, RunEntry
