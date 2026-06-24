@@ -1,6 +1,76 @@
 import html as _html
+import json as _json
 from datetime import datetime
 from pathlib import Path
+
+# Airtest NDJSON tag -> log level shown in the dev view.
+_TAG_LEVEL = {"function": "INFO", "info": "INFO", "warning": "WARNING", "error": "ERROR"}
+
+
+def _fmt_secs(secs: float) -> str:
+    """Format seconds as compact human duration: '4.21s', '1m 04s', '1h 02m 03s'."""
+    if secs < 60:
+        return f"{secs:.2f}s"
+    s = int(round(secs))
+    h, rem = divmod(s, 3600)
+    m, sec = divmod(rem, 60)
+    if h:
+        return f"{h}h {m:02d}m {sec:02d}s"
+    return f"{m}m {sec:02d}s"
+
+
+def _parse_airtest_log(text: str) -> list[dict]:
+    """Parse Airtest's NDJSON log into command rows: one row per logged action.
+
+    Each line is a JSON object with `tag`, `time`, and a `data` payload holding the
+    command `name`, `call_args`, timing, and (on failure) a `traceback`.
+    """
+    rows: list[dict] = []
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            obj = _json.loads(line)
+        except _json.JSONDecodeError:
+            continue
+        data = obj.get("data") or {}
+        tag = str(obj.get("tag") or "")
+        name = data.get("name") or data.get("log") or tag or "(unnamed)"
+        tb = data.get("traceback")
+
+        screen = data.get("screen")
+        if not screen and isinstance(data.get("ret"), dict):
+            screen = data["ret"].get("screen")
+        if isinstance(screen, dict):
+            screen = screen.get("screen")
+        img = screen if isinstance(screen, str) and screen else None
+
+        ts = obj.get("time") or data.get("start_time")
+        try:
+            time_str = datetime.fromtimestamp(ts).strftime("%H:%M:%S") if ts else ""
+        except (OSError, ValueError, OverflowError):
+            time_str = ""
+
+        if tb:
+            level = "ERROR"
+            tb_lines = str(tb).strip().splitlines()
+            msg = tb_lines[-1] if tb_lines else str(name)
+        else:
+            level = _TAG_LEVEL.get(tag.lower(), "INFO")
+            msg = str(name)
+            args = data.get("call_args")
+            if args:
+                try:
+                    msg += " " + _json.dumps(args, default=str, ensure_ascii=False)
+                except (TypeError, ValueError):
+                    pass
+            st, en = data.get("start_time"), data.get("end_time")
+            if isinstance(st, (int, float)) and isinstance(en, (int, float)) and en >= st and "(" not in str(name):
+                msg += f"  ({en - st:.2f}s)"
+
+        rows.append({"time": time_str, "level": level, "src": tag or "airtest", "msg": msg, "img": img})
+    return rows
 
 try:
     from dagster.report_theme import THEME_CSS
@@ -14,6 +84,7 @@ def write_log_txt(
     steps: list[dict],
     error_top: Exception | None,
     air_path: Path | None = None,
+    device_id: str | None = None,
 ) -> None:
     """Write structured log.txt from captured steps."""
     log_file = out_dir / "log.txt"
@@ -21,6 +92,8 @@ def write_log_txt(
     lines = []
     if air_path is not None:
         lines.append(f"AIR_PATH={air_path.resolve()}")
+    if device_id:
+        lines.append(f"DEVICE={device_id}")
     lines += [
         f"# {tc_name}",
         f"# Run: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
@@ -47,7 +120,10 @@ _VALID_STEP_STATUSES = {"PASS", "FAIL"}
 _REPORT_CSS = """
 *{margin:0;padding:0}
 body{min-height:100vh;padding:0}
-.banner{padding:28px 32px 20px;text-align:center}
+.banner{padding:20px 32px;display:flex;align-items:center;justify-content:center;gap:28px;flex-wrap:wrap}
+.banner-info{text-align:center}
+.banner-video{flex:0 0 auto}
+.banner-video video{max-height:400px;max-width:720px;border-radius:8px;border:1px solid var(--border);background:#000;display:block}
 .banner.pass{background:rgba(16,185,129,.12);border-bottom:2px solid var(--pass)}
 .banner.fail{background:rgba(239,68,68,.12);border-bottom:2px solid var(--fail)}
 .banner.skip{background:rgba(100,116,139,.12);border-bottom:2px solid var(--skip)}
@@ -59,6 +135,27 @@ body{min-height:100vh;padding:0}
 .banner .meta span{margin:0 12px}
 .banner .rec-badge{display:inline-block;background:var(--bg-item);padding:3px 10px;border-radius:10px;font-size:12px;color:var(--accent);text-decoration:none;margin:8px 4px 0}
 .banner .rec-badge:hover{background:var(--border)}
+.view-toggle{margin-top:12px;display:inline-flex;border:1px solid var(--border);border-radius:8px;overflow:hidden}
+.view-toggle button{padding:5px 18px;border:none;background:var(--bg-item);color:var(--text-main);cursor:pointer;font-size:12px;font-weight:600}
+.view-toggle button+button{border-left:1px solid var(--border)}
+.view-toggle button:hover{background:var(--border)}
+.view-toggle button.active{background:var(--accent);color:#fff}
+.dev-log{display:none}
+.lvl{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700;min-width:58px;text-align:center;border:1px solid var(--border);color:var(--text-dim)}
+.lvl.error,.lvl.critical{background:rgba(239,68,68,.15);color:var(--fail);border-color:rgba(239,68,68,.3)}
+.lvl.warning{background:rgba(245,158,11,.15);color:#f59e0b;border-color:rgba(245,158,11,.3)}
+.lvl.info{background:rgba(16,185,129,.12);color:var(--pass)}
+#dev-table td.msg{font-family:ui-monospace,Consolas,monospace;font-size:12px;white-space:pre-wrap;word-break:break-word}
+#dev-table tr[data-src="info"] td.msg{font-weight:700;font-size:14px;color:var(--accent)}
+.dev-pager{display:flex;align-items:center;justify-content:center;gap:16px;padding:14px 32px}
+.dev-pager button{padding:5px 14px;border:1px solid var(--border);border-radius:6px;background:var(--bg-item);color:var(--text-main);cursor:pointer;font-size:13px}
+.dev-pager button:hover:not(:disabled){background:var(--border)}
+.dev-pager button:disabled{opacity:.4;cursor:not-allowed}
+#dev-page-info{font-size:13px;color:var(--text-dim);min-width:120px;text-align:center}
+#dev-table td.time{color:var(--text-dim);white-space:nowrap;font-size:12px}
+#dev-table td.src{color:var(--text-dim);font-size:12px;white-space:nowrap}
+body.dev-view .tester-only{display:none}
+body.dev-view .dev-log{display:block}
 .stats{display:flex;gap:16px;justify-content:center;padding:20px 32px;background:var(--bg-card);border-bottom:1px solid var(--border);flex-wrap:wrap}
 .stat-box{text-align:center;min-width:80px}
 .stat-box .num{font-size:24px;font-weight:700}
@@ -104,6 +201,8 @@ def generate_summary_report(
     status: str,
     recordings: list[Path],
     error_top: Exception | None = None,
+    airtest_log: str | None = None,
+    elapsed: float | None = None,
 ) -> Path:
     status_cls = {"PASS": "pass", "FAIL": "fail"}.get(status, "skip")
     safe_status = _html.escape(status)
@@ -123,6 +222,9 @@ def generate_summary_report(
             error_message = first_fail.get("behaviour") or "Step failed (no detail)"
         error_screenshot = first_fail.get("screenshot")
 
+    # Primary screen recording: prefer the raw capture over the step-highlights clip.
+    primary_rec = next((r for r in recordings if "_steps" not in r.stem), recordings[0] if recordings else None)
+
     parts: list[str] = []
 
     parts.append(f"""<!DOCTYPE html>
@@ -133,21 +235,36 @@ def generate_summary_report(
 {_REPORT_CSS}
 </style></head><body>
 <div class="banner {status_cls}">
+  <div class="banner-info">
   <div class="status {status_cls}">{safe_status}</div>
-  <div class="meta"><span>{safe_tc_name}</span><span>|</span><span>{total} steps</span>""")
+  <div class="meta"><span>{safe_tc_name}</span><span>|</span><span>{total} steps</span>{f'<span>|</span><span>&#9201; {_fmt_secs(elapsed)}</span>' if elapsed is not None else ''}""")
 
     for rec in recordings:
         safe_rec = _html.escape(rec.name, quote=True)
         label = "Step Highlights" if "_steps" in rec.stem else safe_rec
         parts.append(f'<br><a class="rec-badge" href="{safe_rec}">&#9654; {label}</a>')
 
-    parts.append("""</div></div>""")
+    if airtest_log is not None:
+        parts.append("""<div class="view-toggle">
+  <button class="active" data-view="tester">Tester</button>
+  <button data-view="dev">Dev</button>
+</div>""")
+
+    parts.append("""</div></div>""")  # /.meta /.banner-info
+
+    if primary_rec is not None:
+        safe_v = _html.escape(primary_rec.name, quote=True)
+        parts.append(f'<div class="banner-video"><video src="{safe_v}" autoplay muted loop playsinline controls></video></div>')
+
+    parts.append("""</div>""")  # /.banner
+
+    parts.append('<div class="tester-only">')
 
     parts.append(f"""<div class="stats">
   <div class="stat-box"><div class="num">{total}</div><div class="label">Steps</div></div>
   <div class="stat-box"><div class="num pass">{passed}</div><div class="label">Passed</div></div>
   <div class="stat-box"><div class="num fail">{failed}</div><div class="label">Failed</div></div>
-  <div class="stat-box"><div class="num">{total_duration:.2f}s</div><div class="label">Duration</div></div>
+  <div class="stat-box"><div class="num">{total_duration:.2f}s</div><div class="label">Step Time</div></div>{f'<div class="stat-box"><div class="num">{_fmt_secs(elapsed)}</div><div class="label">Total Time</div></div>' if elapsed is not None else ''}
 </div>""")
 
     parts.append("""<div class="filters">
@@ -193,6 +310,48 @@ def generate_summary_report(
 
     parts.append("""</tbody></table>""")
 
+    parts.append('</div>')  # /.tester-only
+
+    if airtest_log is not None:
+        log_rows = _parse_airtest_log(airtest_log)
+        parts.append('<div class="dev-log">')
+        parts.append("""<div class="filters">
+  <button class="active" data-dev-filter="all">All</button>
+  <button data-dev-filter="error">Error</button>
+  <button data-dev-filter="warning">Warn</button>
+  <button data-dev-filter="info">Info</button>
+  <input type="text" id="dev-search" placeholder="Search commands...">
+</div>""")
+        parts.append("""<table id="dev-table">
+<thead><tr><th>#</th><th>Time</th><th>Level</th><th>Source</th><th>Message</th><th>Image</th></tr></thead><tbody>""")
+        if not log_rows:
+            parts.append('<tr><td colspan="6" class="no-runs">No commands logged</td></tr>')
+        else:
+            for i, r in enumerate(log_rows, 1):
+                lvl = r["level"]
+                lvl_cls = lvl.lower()
+                row_cls = "fail" if lvl in ("ERROR", "CRITICAL") else "pass"
+                lvl_html = f'<span class="lvl {lvl_cls}">{_html.escape(lvl)}</span>' if lvl else ""
+                img_html = ""
+                if r.get("img"):
+                    safe_img = _html.escape(r["img"], quote=True)
+                    img_html = f'<img class="screenshot" src="{safe_img}" onclick="openModal(this.src)" loading="lazy">'
+                parts.append(f"""<tr class="{row_cls}" data-level="{lvl_cls or 'none'}" data-src="{_html.escape(r["src"], quote=True)}">
+<td>{i}</td>
+<td class="time">{_html.escape(r["time"])}</td>
+<td>{lvl_html}</td>
+<td class="src">{_html.escape(r["src"])}</td>
+<td class="msg">{_html.escape(r["msg"])}</td>
+<td>{img_html}</td>
+</tr>""")
+        parts.append("""</tbody></table>""")
+        parts.append("""<div class="dev-pager">
+  <button id="dev-prev">&#8249; Prev</button>
+  <span id="dev-page-info"></span>
+  <button id="dev-next">Next &#8250;</button>
+</div>""")
+        parts.append("""</div>""")  # /.dev-log
+
     if error_message:
         safe_err = _html.escape(error_message)
         parts.append(f'<div class="error-panel"><h2>Failure detail</h2><pre>{safe_err}</pre>')
@@ -224,6 +383,58 @@ function applyFilters(){
     r.style.display=show?'':'none';
   });
 }
+var viewBtns=document.querySelectorAll('.view-toggle button');
+viewBtns.forEach(function(b){b.addEventListener('click',function(){
+  viewBtns.forEach(function(x){x.classList.remove('active')});
+  this.classList.add('active');
+  document.body.classList.toggle('dev-view',this.getAttribute('data-view')==='dev');
+})});
+var devBtns=document.querySelectorAll('[data-dev-filter]');
+var devSearch=document.getElementById('dev-search');
+var devRows=Array.prototype.slice.call(document.querySelectorAll('#dev-table tbody tr'));
+var devPrev=document.getElementById('dev-prev');
+var devNext=document.getElementById('dev-next');
+var devInfo=document.getElementById('dev-page-info');
+var DEV_PER_PAGE=10;
+var devPage=1;
+function devMatches(r){
+  var active=document.querySelector('[data-dev-filter].active');
+  var f=active?active.getAttribute('data-dev-filter'):'all';
+  var q=devSearch?devSearch.value.toLowerCase():'';
+  var lvl=r.getAttribute('data-level');
+  if(f!=='all'){
+    if(f==='error'){if(lvl!=='error'&&lvl!=='critical')return false;}
+    else if(lvl!==f)return false;
+  }
+  if(q&&r.textContent.toLowerCase().indexOf(q)===-1)return false;
+  return true;
+}
+function applyDevFilters(){
+  var matches=[];
+  devRows.forEach(function(r){
+    if(devMatches(r))matches.push(r); else r.style.display='none';
+  });
+  var pages=Math.max(1,Math.ceil(matches.length/DEV_PER_PAGE));
+  if(devPage>pages)devPage=pages;
+  if(devPage<1)devPage=1;
+  matches.forEach(function(r,i){
+    var p=Math.floor(i/DEV_PER_PAGE)+1;
+    r.style.display=(p===devPage)?'':'none';
+  });
+  if(devInfo)devInfo.textContent=matches.length+' rows · page '+devPage+'/'+pages;
+  if(devPrev)devPrev.disabled=(devPage<=1);
+  if(devNext)devNext.disabled=(devPage>=pages);
+}
+devBtns.forEach(function(b){b.addEventListener('click',function(){
+  devBtns.forEach(function(x){x.classList.remove('active')});
+  this.classList.add('active');
+  devPage=1;
+  applyDevFilters();
+})});
+if(devSearch)devSearch.addEventListener('input',function(){devPage=1;applyDevFilters();});
+if(devPrev)devPrev.addEventListener('click',function(){devPage--;applyDevFilters();});
+if(devNext)devNext.addEventListener('click',function(){devPage++;applyDevFilters();});
+applyDevFilters();
 function openModal(src){document.getElementById('modal-img').src=src;document.getElementById('modal').style.display='flex';}
 function closeModal(){document.getElementById('modal').style.display='none';}
 document.addEventListener('keydown',function(e){if(e.key==='Escape')closeModal();});

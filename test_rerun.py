@@ -165,6 +165,49 @@ def test_rerun_concurrent_guard(tmp_path):
         server.shutdown()
 
 
+def test_rerun_reaps_stale_running_job(tmp_path):
+    # A prior job whose process already exited but was never reaped (client poller
+    # died on page reload) must NOT block a new rerun with a permanent 409.
+    folder = tmp_path / "tc01_login_20260619_100000"
+    folder.mkdir()
+    dummy_air = tmp_path / "tc01_login.air"
+    dummy_air.mkdir()
+    (dummy_air / "tc01_login.py").write_text("def main(): pass\n", encoding="utf-8")
+    (folder / "log.txt").write_text(
+        f"AIR_PATH={dummy_air}\n# tc01_login\n# Status: PASS\n", encoding="utf-8"
+    )
+    server, _ = _make_test_server(tmp_path, 17078)
+    try:
+        import subprocess
+        import sys
+        stale_proc = subprocess.Popen([sys.executable, "-c", "import sys; sys.exit(0)"])
+        stale_proc.wait()  # exited, but status left as "running"
+        report_server._jobs["stale-0000"] = {
+            "job_id": "stale-0000",
+            "stem": "tc01_login",
+            "air_path": str(dummy_air),
+            "proc": stale_proc,
+            "status": "running",
+            "new_folder": None,
+            "exit_code": None,
+            "started": time.time(),
+            "log_file": open(tmp_path / "stale.log", "w", encoding="utf-8"),
+            "log_path": tmp_path / "stale.log",
+        }
+        status, body = _post("http://127.0.0.1:17078/rerun/tc01_login_20260619_100000")
+        assert status == 200, body
+        assert "job_id" in body
+        assert report_server._jobs["stale-0000"]["status"] in ("done", "failed")
+    finally:
+        with report_server._jobs_lock:
+            for job in report_server._jobs.values():
+                try:
+                    job["proc"].terminate()
+                except Exception:
+                    pass
+        server.shutdown()
+
+
 # ── /rerun-status endpoint ────────────────────────────────────────────────────
 
 def _get(url: str, headers: dict | None = None) -> tuple[int, bytes]:

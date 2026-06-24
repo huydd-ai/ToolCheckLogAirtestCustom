@@ -15,6 +15,7 @@ except ModuleNotFoundError:
 
 _FOLDER_RE = re.compile(r"^(.+)_(\d{8})_(\d{6})$")
 _STATUS_RE = re.compile(r"^#\s*Status:\s*(PASS|FAIL|SKIP)\b", re.MULTILINE)
+_DEVICE_RE = re.compile(r"^DEVICE=(.+)$", re.MULTILINE)
 
 def parse_run_folder_name(name: str) -> tuple[str, datetime] | None:
     m = _FOLDER_RE.match(name)
@@ -38,6 +39,16 @@ def extract_status(log_path: Path) -> str:
     m = _STATUS_RE.search(head)
     return m.group(1) if m else "UNKNOWN"
 
+def extract_device(log_path: Path) -> str:
+    """Read DEVICE= from log.txt head. Returns 'unknown' if absent (e.g. old runs)."""
+    try:
+        with log_path.open("r", encoding="utf-8", errors="replace") as f:
+            head = f.read(1024)
+    except OSError:
+        return "unknown"
+    m = _DEVICE_RE.search(head)
+    return m.group(1).strip() if m else "unknown"
+
 @dataclass(frozen=True)
 class RunEntry:
     stem: str
@@ -45,6 +56,7 @@ class RunEntry:
     status: str
     folder: str
     report_href: str
+    device: str = "unknown"
 
 def scan_runs(report_root: Path) -> list[RunEntry]:
     if not report_root.exists():
@@ -61,6 +73,7 @@ def scan_runs(report_root: Path) -> list[RunEntry]:
             continue
         stem, when = parsed
         status = extract_status(log_path)
+        device = extract_device(log_path)
         entries.append(
             RunEntry(
                 stem=stem,
@@ -68,6 +81,7 @@ def scan_runs(report_root: Path) -> list[RunEntry]:
                 status=status,
                 folder=child.name,
                 report_href=f"{child.name}/report.html",
+                device=device,
             )
         )
     return entries
@@ -276,6 +290,25 @@ li:hover { border-color: var(--border); transform: translateX(4px); }
 }
 .filter-pill:hover { background: var(--bg-item); }
 .filter-pill.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+/* Device summary */
+.device-bar { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; margin-bottom: 20px; }
+.device-card {
+  background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--r); padding: 14px 16px;
+  cursor: pointer; transition: border-color 0.2s;
+}
+.device-card:hover { border-color: var(--accent); }
+.device-card.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.device-card .dev-id { font-family: ui-monospace, Consolas, monospace; font-size: 13px; color: var(--text-main); font-weight: 600; word-break: break-all; }
+.device-card .dev-counts { display: flex; gap: 12px; margin-top: 8px; font-size: 13px; font-weight: 700; }
+.device-card .dev-counts .p { color: var(--pass); }
+.device-card .dev-counts .f { color: var(--fail); }
+.device-card .dev-counts .s { color: var(--skip); }
+.device-card .dev-last { font-size: 11px; color: var(--text-dim); margin-top: 6px; }
+.dev-tag {
+  font-family: ui-monospace, Consolas, monospace; font-size: 11px; color: var(--text-dim);
+  background: var(--bg); border: 1px solid var(--border); border-radius: 4px; padding: 2px 8px; white-space: nowrap;
+}
 """.strip()
 
 _JS = """
@@ -351,6 +384,7 @@ async function deleteAllRuns(btn, dateStr) {
 })();
 
 var _runsEtag = '';
+var _rerunActive = false;
 var _runOffsets = {};
 
 function toggleLogs(folder) {
@@ -399,6 +433,7 @@ async function rerunTest(btn, folder) {
     if (logsContainer) logsContainer.style.display = 'flex';
     
     _runOffsets[data.job_id] = 0;
+    _rerunActive = true;
     pollRerunStatus(btn, folder, data.job_id, statusEl, termBtn, logsBtn, preEl, logsContainer);
   } catch (err) {
     btn.disabled = false;
@@ -426,6 +461,7 @@ function pollRerunStatus(btn, folder, jobId, statusEl, termBtn, logsBtn, preEl, 
       var data = await r.json();
       if (data.status !== 'running') {
         clearInterval(intervalId);
+        _rerunActive = false;
         btn.disabled = false;
         btn.textContent = '↺ Rerun';
         if (termBtn) termBtn.style.display = 'none';
@@ -434,6 +470,7 @@ function pollRerunStatus(btn, folder, jobId, statusEl, termBtn, logsBtn, preEl, 
       }
     } catch (err) {
       clearInterval(intervalId);
+      _rerunActive = false;
       btn.disabled = false;
       btn.textContent = '↺ Rerun';
       if (termBtn) termBtn.style.display = 'none';
@@ -443,6 +480,7 @@ function pollRerunStatus(btn, folder, jobId, statusEl, termBtn, logsBtn, preEl, 
 }
 
 async function refreshRunList() {
+  if (_rerunActive) return;  // don't reload mid-rerun — it'd kill the live log view
   try {
     var headers = _runsEtag ? {'If-None-Match': _runsEtag} : {};
     var r = await fetch('/api/runs', {headers: headers});
@@ -455,6 +493,32 @@ async function refreshRunList() {
   }
 }
 
+// Auto-refresh: seed the current ETag once (so we don't reload on the first poll),
+// then poll /api/runs — a new/deleted report folder changes the ETag and triggers reload.
+async function startAutoRefresh() {
+  try {
+    var r = await fetch('/api/runs');
+    if (r.ok) _runsEtag = r.headers.get('ETag') || '';
+  } catch (err) {}
+  setInterval(refreshRunList, 5000);
+}
+startAutoRefresh();
+
+var _deviceFilter = null;
+
+function toggleDevice(card) {
+  var dev = card.getAttribute('data-device');
+  if (_deviceFilter === dev) {
+    _deviceFilter = null;
+    card.classList.remove('active');
+  } else {
+    _deviceFilter = dev;
+    document.querySelectorAll('.device-card').forEach(function(c) { c.classList.remove('active'); });
+    card.classList.add('active');
+  }
+  applyDashboardFilters();
+}
+
 function applyDashboardFilters() {
   var searchEl = document.getElementById('dash-search');
   var q = (searchEl ? searchEl.value : '').toLowerCase();
@@ -465,8 +529,10 @@ function applyDashboardFilters() {
     d.querySelectorAll('.run-item').forEach(function(li) {
       var name = li.getAttribute('data-name') || '';
       var st = li.getAttribute('data-status') || '';
+      var dev = li.getAttribute('data-device') || '';
       var show = true;
       if (sf !== 'all' && st !== sf) show = false;
+      if (_deviceFilter && dev !== _deviceFilter) show = false;
       if (q && name.indexOf(q) === -1) show = false;
       li.style.display = show ? '' : 'none';
       var logs = li.nextElementSibling;
@@ -500,6 +566,17 @@ def _count_statuses(rows: list[RunEntry]) -> str:
             parts.append(f"{counts[s]} {s}")
     return ", ".join(parts)
 
+def _device_summary(rows: list[RunEntry]) -> list[dict]:
+    """Per-device aggregate: counts + last run time. Sorted by most-recent activity."""
+    by_dev: dict[str, dict] = {}
+    for r in rows:
+        d = by_dev.setdefault(r.device, {"device": r.device, "PASS": 0, "FAIL": 0, "SKIP": 0, "UNKNOWN": 0, "last": r.when})
+        d[r.status if r.status in ("PASS", "FAIL", "SKIP") else "UNKNOWN"] += 1
+        if r.when > d["last"]:
+            d["last"] = r.when
+    return sorted(by_dev.values(), key=lambda d: d["last"], reverse=True)
+
+
 def render_html(groups: list[tuple[str, list[RunEntry]]]) -> str:
     today_str = date.today().strftime("%Y-%m-%d")
     html = [
@@ -531,6 +608,24 @@ def render_html(groups: list[tuple[str, list[RunEntry]]]) -> str:
         html.append(f'<div class="metric"><div class="label">Failed</div><div class="value fail">{n_fail}</div></div>')
         html.append(f'<div class="metric"><div class="label">Pass rate</div><div class="value">{pass_rate}</div></div>')
         html.append('</div>')
+
+        devices = _device_summary(all_rows)
+        html.append('<div class="device-bar">')
+        for d in devices:
+            dev_id = escape(d["device"], quote=True)
+            last_str = d["last"].strftime("%Y-%m-%d %H:%M:%S")
+            html.append(f'<div class="device-card" data-device="{dev_id}" onclick="toggleDevice(this)" title="Filter by this device">')
+            html.append(f'<div class="dev-id">&#128241; {escape(d["device"])}</div>')
+            html.append('<div class="dev-counts">')
+            html.append(f'<span class="p">&#10003; {d["PASS"]}</span>')
+            html.append(f'<span class="f">&#10007; {d["FAIL"]}</span>')
+            if d["SKIP"]:
+                html.append(f'<span class="s">&#8722; {d["SKIP"]}</span>')
+            html.append('</div>')
+            html.append(f'<div class="dev-last">Last run: {escape(last_str)}</div>')
+            html.append('</div>')
+        html.append('</div>')
+
         html.append('<div class="controls">')
         html.append('<input type="text" id="dash-search" placeholder="Filter by test name…">')
         html.append('<button class="filter-pill active" data-status="all">All</button>')
@@ -556,12 +651,14 @@ def render_html(groups: list[tuple[str, list[RunEntry]]]) -> str:
                 folder = escape(r.folder)
                 time_str = r.when.strftime("%H:%M:%S")
                 
-                html.append(f'<li class="run-item" data-status="{status_cls}" data-name="{escape(r.stem.lower(), quote=True)}">')
+                dev_id = escape(r.device, quote=True)
+                html.append(f'<li class="run-item" data-status="{status_cls}" data-name="{escape(r.stem.lower(), quote=True)}" data-device="{dev_id}">')
                 html.append('<div class="run-main">')
                 html.append(f'<span class="badge {status_cls}">{escape(r.status)}</span>')
                 html.append(f'<a class="run-name" href="{href}" onclick="openReport(event, \'{href}\', \'{stem}\')">{stem}</a>')
                 html.append('</div>')
                 html.append('<div class="run-meta">')
+                html.append(f'<span class="dev-tag" title="Device">&#128241; {escape(r.device)}</span>')
                 html.append(f'<span class="run-time">{time_str}</span>')
                 html.append(f'<button class="rerun-btn" data-folder="{folder}" onclick="rerunTest(this, \'{folder}\')" title="Rerun this test">↺ Rerun</button>')
                 html.append(f'<button class="terminate-btn" data-folder="{folder}" onclick="terminateTest(this, \'{folder}\')" title="Terminate this test">⏹ Terminate</button>')

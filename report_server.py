@@ -21,7 +21,11 @@ import uuid
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from aggregate_report import regenerate_global_report
+_dagster_dir = Path(__file__).resolve().parent
+_project_root = _dagster_dir.parent
+sys.path.insert(0, str(_project_root))
+
+from dagster.aggregate_report import regenerate_global_report
 
 
 def extract_air_path(log_path: Path) -> str | None:
@@ -133,8 +137,38 @@ class ReportHandler(SimpleHTTPRequestHandler):
             folder_name = self.path.removeprefix("/rerun/")
             self._handle_rerun(folder_name)
             return
+        if self.path.startswith("/rerun-terminate/"):
+            job_id = self.path.removeprefix("/rerun-terminate/")
+            self._handle_rerun_terminate(job_id)
+            return
         self.send_response(405)
         self.end_headers()
+
+    def _handle_rerun_terminate(self, job_id: str) -> None:
+        with _jobs_lock:
+            job = _jobs.get(job_id)
+        if job is None:
+            self._json(404, {"error": "unknown job"})
+            return
+        if job["status"] == "running":
+            try:
+                job["proc"].terminate()
+            except OSError:
+                pass
+            try:
+                import subprocess
+                import os
+                try:
+                    from dotenv import load_dotenv
+                    # Load .env from dagster/ directory
+                    load_dotenv(dotenv_path=Path(__file__).parent / ".env")
+                except ImportError:
+                    pass
+                pkg = os.environ.get("GAME_PACKAGE", "com.woodpuzzle.pin3d")
+                subprocess.run(["adb", "shell", "am", "force-stop", pkg], check=False)
+            except Exception:
+                pass
+        self._json(200, {"status": "terminated"})
 
     def _handle_rerun(self, folder_name: str) -> None:
         target = REPORT_ROOT / folder_name
@@ -153,19 +187,38 @@ class ReportHandler(SimpleHTTPRequestHandler):
         with _jobs_lock:
             for job in _jobs.values():
                 if job["stem"] == stem and job["status"] == "running":
-                    self._json(409, {"error": "already running"})
-                    return
+                    rc = job["proc"].poll()
+                    if rc is None:
+                        self._json(409, {"error": "already running"})
+                        return
+                    # Process already exited but status was never reaped (e.g. the
+                    # client poller died when the page reloaded). Reap it so it
+                    # doesn't block reruns forever.
+                    job["exit_code"] = rc
+                    job["status"] = "done" if rc == 0 else "failed"
+                    if "log_file" in job and not job["log_file"].closed:
+                        job["log_file"].close()
+            job_id = str(uuid.uuid4())
+            log_path = REPORT_ROOT / f"{job_id}.log"
+            # Keep file open for the lifetime of the process
+            log_file = log_path.open("w", encoding="utf-8")
+            
             dagster_run = Path(__file__).parent / "dagster_run.py"
+            import os
+            env = os.environ.copy()
+            env["PYTHONIOENCODING"] = "utf-8"
             try:
                 proc = subprocess.Popen(
-                    [sys.executable, str(dagster_run), air_path],
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
+                    [sys.executable, "-u", str(dagster_run), air_path],
+                    stdout=log_file,
+                    stderr=subprocess.STDOUT,
+                    env=env
                 )
             except FileNotFoundError:
+                log_file.close()
                 self._json(500, {"error": "dagster_run.py not found"})
                 return
-            job_id = str(uuid.uuid4())
+            
             _jobs[job_id] = {
                 "job_id": job_id,
                 "stem": stem,
@@ -175,6 +228,8 @@ class ReportHandler(SimpleHTTPRequestHandler):
                 "new_folder": None,
                 "exit_code": None,
                 "started": time.time(),
+                "log_file": log_file,
+                "log_path": log_path,
             }
         self._json(200, {"job_id": job_id})
 
@@ -192,6 +247,8 @@ class ReportHandler(SimpleHTTPRequestHandler):
                     job["exit_code"] = rc
                     job["status"] = "done" if rc == 0 else "failed"
                     job["new_folder"] = _find_newest_folder(REPORT_ROOT, job["stem"])
+                    if "log_file" in job and not job["log_file"].closed:
+                        job["log_file"].close()
         self._json(200, {
             "status": job["status"],
             "new_folder": job.get("new_folder"),
@@ -200,7 +257,7 @@ class ReportHandler(SimpleHTTPRequestHandler):
 
     def _handle_api_runs(self) -> None:
         try:
-            from aggregate_report import scan_runs
+            from dagster.aggregate_report import scan_runs
             entries = scan_runs(REPORT_ROOT)
             folder_names = [e.folder for e in entries]
             etag = _compute_etag(folder_names)
@@ -238,7 +295,36 @@ class ReportHandler(SimpleHTTPRequestHandler):
         if clean == "/api/runs":
             self._handle_api_runs()
             return
+        if clean.startswith("/rerun-logs/"):
+            job_id = clean.removeprefix("/rerun-logs/")
+            self._handle_rerun_logs(job_id)
+            return
         super().do_GET()
+
+    def _handle_rerun_logs(self, job_id: str) -> None:
+        with _jobs_lock:
+            job = _jobs.get(job_id)
+        if job is None:
+            self._json(404, {"error": "unknown job"})
+            return
+        
+        from urllib.parse import parse_qs
+        query = parse_qs(self.path.split('?', 1)[1]) if '?' in self.path else {}
+        offset = int(query.get("offset", ["0"])[0])
+        
+        log_path = job.get("log_path")
+        if not log_path or not log_path.exists():
+            self._json(200, {"text": "", "offset": offset})
+            return
+            
+        try:
+            with log_path.open("r", encoding="utf-8", errors="replace") as f:
+                f.seek(offset)
+                text = f.read()
+                new_offset = f.tell()
+            self._json(200, {"text": text, "offset": new_offset})
+        except OSError as e:
+            self._json(500, {"error": str(e)})
 
     def log_message(self, fmt, *args):
         sys.stderr.write(f"[report_server] {args[0]}\n")
@@ -252,18 +338,25 @@ class ReportHandler(SimpleHTTPRequestHandler):
 
 
 def main():
+    global REPORT_ROOT
     parser = argparse.ArgumentParser(description="Dagster test report server")
     parser.add_argument("--port", type=int, default=7070)
     parser.add_argument("--root", type=str, default=str(REPORT_ROOT))
     args = parser.parse_args()
 
-    REPORT_ROOT_PATH = Path(args.root).resolve()
-    if not REPORT_ROOT_PATH.exists():
-        REPORT_ROOT_PATH.mkdir(parents=True)
-        print(f"[report_server] Created root: {REPORT_ROOT_PATH}")
+    REPORT_ROOT = Path(args.root).resolve()
+    if not REPORT_ROOT.exists():
+        REPORT_ROOT.mkdir(parents=True)
+        print(f"[report_server] Created root: {REPORT_ROOT}")
+
+    # Ensure the global report is generated before serving
+    try:
+        regenerate_global_report(REPORT_ROOT)
+    except Exception as e:
+        print(f"[report_server] Failed to regenerate report: {e}")
 
     server = ThreadingHTTPServer(("0.0.0.0", args.port), ReportHandler)
-    print(f"[report_server] Serving {REPORT_ROOT_PATH} at http://localhost:{args.port}")
+    print(f"[report_server] Serving {REPORT_ROOT} at http://localhost:{args.port}/")
     print(f"[report_server] DELETE endpoint: http://localhost:{args.port}/delete/<folder>")
     print(f"[report_server] DELETE-DATE endpoint: http://localhost:{args.port}/delete-date/<YYYY-MM-DD>")
     try:
