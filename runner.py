@@ -6,7 +6,7 @@ from pathlib import Path
 from airtest.core.api import auto_setup, G
 from airtest.core.settings import Settings as ST
 
-from dagster.reporting import write_log_txt, generate_html, generate_summary_report
+from dagster.reporting import write_log_txt, generate_summary_report
 from dagster.step_capture import clear_steps, get_steps
 from dagster.OpenCVAnnotator import OpenCVAnnotator
 
@@ -31,7 +31,8 @@ def run_single_test(air_path: Path, py_script: Path, mode: str, device_id: str, 
         from dagster.OpenCVRecorder import OpenCVRecorder
         recorder = OpenCVRecorder(
             output=str(recording_path),
-            fps=10,
+            fps=120,
+            scale=0.5,
         )
         recorder.start()
     except Exception as e:
@@ -141,16 +142,10 @@ def run_single_test(air_path: Path, py_script: Path, mode: str, device_id: str, 
         recordings = [*recordings, *sorted(out_dir.glob("recording_*.mp4"))]
 
         try:
-            generate_html(air_path, out_dir, mode, ndjson_name="airtest.log", recordings=recordings, status=status)
-            print(f"[INFO] report.html generated")
+            report_path = generate_summary_report(out_dir, air_path.stem, steps, status, recordings, error_top)
+            print(f"[INFO] report: {report_path.name}")
         except Exception as e:
             print(f"[WARN] Failed to generate report: {e}", file=sys.stderr)
-
-        try:
-            summary_path = generate_summary_report(out_dir, air_path.stem, steps, status, recordings, error_top)
-            print(f"[INFO] summary report: {summary_path.name}")
-        except Exception as e:
-            print(f"[WARN] Failed to generate summary report: {e}", file=sys.stderr)
 
         try:
             write_log_txt(out_dir, air_path.stem, steps, error_top, air_path=air_path)

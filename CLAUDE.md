@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Custom Airtest test runner + scrcpy screen recorder for the **Screw Land** automation suite.
 
-**NOT the Dagster orchestration framework** — "dagster" is only the repo/dir name. There is zero `import dagster`. The runner is built on Airtest (`airtest.core.api`, `airtest.report.report.LogToHtml`) plus the host `pixon` package.
+**NOT the Dagster orchestration framework** — "dagster" is only the repo/dir name. There is zero `import dagster`. The runner is built on Airtest (`airtest.core.api`) plus the host `pixon` package. (Per-run reports are a custom HTML page; Airtest's `LogToHtml` is no longer used.)
 
 Three runnable files (full prose guide: `README.md`):
 - `dagster_run.py` — **primary** runner. Structured per-step logging + per-step HTML report + scrcpy recording.
@@ -52,9 +52,8 @@ Each test writes a timestamped folder under `report_run/` (gitignored):
 ```
 report_run/<air_stem>_<YYYYMMDD_HHMMSS>/
   log.txt            # structured step log: "name: action, screenshot, status[, behaviour]"
-  airtest.log        # Airtest NDJSON (LogToHtml input)
-  report.html        # redirect → <stem>.log/report.html (Airtest's self-contained report)
-  <stem>.log/        # bundled HTML + css/js/fonts
+  airtest.log        # Airtest NDJSON — parsed by runner for FAIL detection (not a report input)
+  report.html        # custom self-contained per-run report (reporting.generate_summary_report)
   *.jpg              # per-step screenshots
   recording_*.mp4    # scrcpy screen capture (if recording enabled)
 ```
@@ -63,8 +62,8 @@ Multi-device runs additionally write `report_run/_parallel_<YYYYMMDD_HHMMSS>/sum
 
 ## Architecture (non-obvious — spans runner + pixon)
 
-- **`run_step()` monkey-patch** (`dagster_run.py`, `_hooked_run_step`, near top of module). Before any test module is imported, the runner wraps `pixon.common.test_flow.run_step`. Each call captures the step's name / action / status / screenshot / error into a global `_steps` list and emits an Airtest NDJSON `function` entry (`_emit_step_log`). This is *why* named steps and screenshots appear in `report.html` — tests just call `run_step(...)`; instrumentation is here, not in the tests. `_steps` is cleared per test → **sequential runs only within a process**, not thread-safe. Multi-device parallelism is therefore **process-based** (one OS process per device, `_run_parallel`), never threaded: Airtest's `G.DEVICE` is a process-global singleton, so each device needs its own interpreter. The parent process holds no Airtest state — it only spawns children, streams their stdout, and aggregates `[RESULT]\t<flow>\t<status>\t<dir>` lines.
-- **Report pipeline** (`_generate_html`, `_normalize_airtest_depth`, `_write_log_txt`): normalizes NDJSON depth so steps render, appends a failure sentinel so failed runs show red, then calls `LogToHtml`. This area is mid-refactor — read the functions; do not assume the exact pipeline from this doc.
+- **`run_step()` monkey-patch** (`dagster_run.py`, `_hooked_run_step`, near top of module). Before any test module is imported, the runner wraps `pixon.common.test_flow.run_step`. Each call captures the step's name / action / status / screenshot / error into a global `_steps` list (and also emits an Airtest NDJSON entry via `_emit_step_log`, now used only for FAIL detection). The custom `report.html` is rendered from `_steps` — this is *why* named steps and screenshots appear; tests just call `run_step(...)`; instrumentation is here, not in the tests. `_steps` is cleared per test → **sequential runs only within a process**, not thread-safe. Multi-device parallelism is therefore **process-based** (one OS process per device, `_run_parallel`), never threaded: Airtest's `G.DEVICE` is a process-global singleton, so each device needs its own interpreter. The parent process holds no Airtest state — it only spawns children, streams their stdout, and aggregates `[RESULT]\t<flow>\t<status>\t<dir>` lines.
+- **Report pipeline** (`reporting.py`): `generate_summary_report` builds a self-contained custom `report.html` (status banner, step table, screenshots, recordings) from the captured `_steps`; `write_log_txt` writes `log.txt`; shared dark theme in `report_theme.py`. Airtest's `LogToHtml` report was removed. `airtest.log` is still produced and parsed by `runner.py` (~lines 108-140) for traceback-based FAIL detection — do **not** delete it.
 - **scrcpy lifecycle**: recorder `.start()` before the test, `.stop()` in a `finally`, MP4 path injected into the HTML report.
 
 ## Conventions

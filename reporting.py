@@ -1,7 +1,11 @@
 import html as _html
-import sys
 from datetime import datetime
 from pathlib import Path
+
+try:
+    from dagster.report_theme import THEME_CSS
+except ModuleNotFoundError:
+    from report_theme import THEME_CSS
 
 
 def write_log_txt(
@@ -36,157 +40,61 @@ def write_log_txt(
     log_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
-def _normalize_and_filter_airtest_log(log_path: Path, mode: str) -> None:
-    """Promote NDJSON entry depths and optionally filter noisy logs for dev mode."""
-    import json
-    if not log_path.exists():
-        return
-    try:
-        raw_lines = log_path.read_text(encoding="utf-8").splitlines()
-        entries: list[dict] = []
-        depths: list[int] = []
-        
-        # Pass 1: find error indices
-        error_indices = set()
-        for i, ln in enumerate(raw_lines):
-            try:
-                obj = json.loads(ln)
-                if obj.get("data", {}).get("traceback") is not None:
-                    error_indices.add(i)
-            except json.JSONDecodeError:
-                pass
-        
-        pending_screen = None
-        for i, ln in enumerate(raw_lines):
-            ln = ln.strip()
-            if not ln:
-                continue
-            try:
-                obj = json.loads(ln)
-                data_dict = obj.get("data", {})
-                tag = obj.get("tag")
-                
-                # Intercept annotated error screenshots
-                if data_dict.get("name") == "Take Screen and Log":
-                    data_dict["name"] = "try_log_screen"
-                    data_dict["call_args"] = {"screen": None, "quality": None, "max_size": None}
-                    data_dict["start_time"] = obj["time"]
-                    data_dict["end_time"] = obj["time"]
-                    pending_screen = obj
-                    
-                    # Redraw the point in the middle of the screen
-                    fname = data_dict.get("ret", {}).get("screen")
-                    if fname:
-                        img_path = log_path.parent / fname
-                        if img_path.exists():
-                            try:
-                                import cv2
-                                import numpy as np
-                                img = cv2.imread(str(img_path))
-                                if img is not None:
-                                    # Erase existing red circle
-                                    red_mask = ((img[:,:,2] > 150) & (img[:,:,1] < 50) & (img[:,:,0] < 50)).astype(np.uint8) * 255
-                                    red_mask = cv2.dilate(red_mask, np.ones((3,3), np.uint8), iterations=1)
-                                    img = cv2.inpaint(img, red_mask, 3, cv2.INPAINT_TELEA)
-                                    # Draw new circle in the middle
-                                    h, w = img.shape[:2]
-                                    cv2.circle(img, (w//2, h//2), 30, (0, 0, 255), 3)
-                                    cv2.circle(img, (w//2, h//2), 5, (0, 0, 255), -1)
-                                    cv2.imwrite(str(img_path), img)
-                            except Exception:
-                                pass
-                    continue
-
-                # Dev mode filters out game step noise
-                if mode == "dev":
-                    has_error = data_dict.get("traceback") is not None
-                    if tag == "function" and not has_error:
-                        # Keep if it is near an error to preserve crash screenshots
-                        if not any(e in error_indices for e in range(i-2, i+5)):
-                            continue
-                            
-                entries.append(obj)
-                d = obj.get("depth")
-                if isinstance(d, int):
-                    depths.append(d)
-                    
-                # If we just appended an error log, append the pending annotated screen as its child
-                if pending_screen and data_dict.get("traceback") is not None:
-                    entries.append(pending_screen)
-                    depths.append(pending_screen.get("depth", 2))
-                    pending_screen = None
-                    
-            except json.JSONDecodeError:
-                continue
-                
-        if pending_screen:
-            entries.append(pending_screen)
-            depths.append(pending_screen.get("depth", 2))
-                
-        if not depths:
-            log_path.write_text("\n".join(json.dumps(o, ensure_ascii=False) for o in entries) + "\n", encoding="utf-8")
-            return
-            
-        offset = min(depths) - 1
-        for obj in entries:
-            d = obj.get("depth")
-            if isinstance(d, int) and offset > 0:
-                obj["depth"] = d - offset
-                
-        log_path.write_text("\n".join(json.dumps(o, ensure_ascii=False) for o in entries) + "\n", encoding="utf-8")
-    except Exception as e:
-        print(f"[WARN] log normalization/filtering failed: {e}", file=sys.stderr)
-
-
-def generate_html(air_path: Path, out_dir: Path, mode: str, ndjson_name: str = "airtest.log", recordings: list[Path] | None = None, status: str = "PASS") -> None:
-    """Generate Airtest HTML report from NDJSON log."""
-    from airtest.report.report import LogToHtml
-
-    _normalize_and_filter_airtest_log(out_dir / ndjson_name, mode)
-
-    rel_recordings = [r.name for r in (recordings or []) if r.exists()]
-
-    log_to_html = LogToHtml(
-        script_root=str(air_path),
-        log_root=str(out_dir),
-        logfile=ndjson_name,
-        export_dir=str(out_dir),
-        lang="en",
-    )
-    log_to_html.report(output_file="report.html", record_list=rel_recordings)
-
-    exported = out_dir / f"{air_path.stem}.log"
-    target_report = exported / "report.html"
-    if not target_report.exists():
-        target_report = exported / "log.html"
-    if target_report.exists():
-        html_content = target_report.read_text(encoding="utf-8")
-        
-        # Override Airtest's native success indicator if the overall test failed
-        if status == "FAIL" and '"test_result": true' in html_content:
-            html_content = html_content.replace('"test_result": true', '"test_result": false')
-        
-        # Fix Airtest's absolute static path bug (e.g. href="C:/.../static/css/..." -> href="static/css/...")
-        import re
-        html_content = re.sub(r'(href|src)="[^"]*?(static/(?:css|js)/[^"]*?)"', r'\1="\2"', html_content)
-        
-        # Fix Airtest's double-slash static path bug (static//css -> static/css)
-        if "static//" in html_content:
-            html_content = html_content.replace("static//", "static/")
-            
-        target_report.write_text(html_content, encoding="utf-8")
-
-        redirect_rel = f"{exported.name}/{target_report.name}"
-        (out_dir / "report.html").write_text(
-            "<!DOCTYPE html><meta charset=\"utf-8\">"
-            f"<meta http-equiv=\"refresh\" content=\"0; url={redirect_rel}\">"
-            "<title>Redirecting...</title>"
-            f"<p>If you are not redirected, <a href=\"{redirect_rel}\">click here</a>.</p>",
-            encoding="utf-8",
-        )
-
-
 _VALID_STEP_STATUSES = {"PASS", "FAIL"}
+
+# Per-run report CSS. Plain string (single braces) so it injects cleanly into the
+# head f-string below. Colors come from THEME_CSS :root vars — shared with the dashboard.
+_REPORT_CSS = """
+*{margin:0;padding:0}
+body{min-height:100vh;padding:0}
+.banner{padding:28px 32px 20px;text-align:center}
+.banner.pass{background:rgba(16,185,129,.12);border-bottom:2px solid var(--pass)}
+.banner.fail{background:rgba(239,68,68,.12);border-bottom:2px solid var(--fail)}
+.banner.skip{background:rgba(100,116,139,.12);border-bottom:2px solid var(--skip)}
+.banner .status{font-size:48px;font-weight:800;letter-spacing:2px}
+.banner .status.pass{color:var(--pass)}
+.banner .status.fail{color:var(--fail)}
+.banner .status.skip{color:var(--skip)}
+.banner .meta{margin-top:8px;font-size:14px;color:var(--text-dim)}
+.banner .meta span{margin:0 12px}
+.banner .rec-badge{display:inline-block;background:var(--bg-item);padding:3px 10px;border-radius:10px;font-size:12px;color:var(--accent);text-decoration:none;margin:8px 4px 0}
+.banner .rec-badge:hover{background:var(--border)}
+.stats{display:flex;gap:16px;justify-content:center;padding:20px 32px;background:var(--bg-card);border-bottom:1px solid var(--border);flex-wrap:wrap}
+.stat-box{text-align:center;min-width:80px}
+.stat-box .num{font-size:24px;font-weight:700}
+.stat-box .num.pass{color:var(--pass)}
+.stat-box .num.fail{color:var(--fail)}
+.stat-box .label{font-size:11px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.05em;margin-top:2px}
+.filters{padding:12px 32px;display:flex;gap:8px;align-items:center;background:var(--bg-card);border-bottom:1px solid var(--border);flex-wrap:wrap}
+.filters button{padding:4px 14px;border:1px solid var(--border);border-radius:6px;background:var(--bg-item);color:var(--text-main);cursor:pointer;font-size:12px}
+.filters button:hover{background:var(--border)}
+.filters button.active{background:var(--accent);border-color:var(--accent);color:#fff}
+.filters input{flex:1;min-width:180px;padding:5px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text-main);font-size:13px;outline:none}
+.filters input:focus{border-color:var(--accent-hover)}
+table{width:100%;border-collapse:collapse}
+th{background:var(--bg-card);padding:8px 12px;text-align:left;font-size:11px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid var(--border);position:sticky;top:0}
+td{padding:8px 12px;border-bottom:1px solid var(--bg-item);font-size:13px;vertical-align:middle}
+tr.pass{background:transparent}
+tr.fail{background:rgba(239,68,68,.07)}
+tr.fail:hover{background:rgba(239,68,68,.13)}
+tr.pass:hover{background:var(--bg-item)}
+.status-badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700;min-width:44px;text-align:center}
+.status-badge.pass{background:rgba(16,185,129,.15);color:var(--pass);border:1px solid rgba(16,185,129,.3)}
+.status-badge.fail{background:rgba(239,68,68,.15);color:var(--fail);border:1px solid rgba(239,68,68,.3)}
+td .screenshot{max-width:72px;max-height:54px;border-radius:4px;border:1px solid var(--border);cursor:pointer;vertical-align:middle}
+td .error-text{color:var(--fail);font-size:12px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer}
+.no-runs{text-align:center;padding:40px;color:var(--text-dim);font-style:italic}
+.error-panel{background:var(--bg-card);border-top:1px solid var(--border);border-bottom:1px solid var(--border);padding:20px 32px}
+.error-panel h2{font-size:14px;color:var(--fail);text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px}
+.error-panel pre{background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:12px;color:var(--fail);font-size:12px;white-space:pre-wrap;word-break:break-word;margin-bottom:12px}
+.error-panel img{max-width:100%;border-radius:6px;border:1px solid var(--border)}
+.modal{display:none;position:fixed;inset:0;z-index:100;align-items:center;justify-content:center}
+.modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.8)}
+.modal-content{position:relative;z-index:101;max-width:90%;max-height:90%}
+.modal-content img{max-width:100%;max-height:85vh;border-radius:8px;border:1px solid var(--border)}
+.modal-close{position:absolute;top:-32px;right:0;background:none;border:none;color:var(--text-dim);font-size:20px;cursor:pointer}
+.modal-close:hover{color:#f0f6fc}
+""".strip()
 
 
 def generate_summary_report(
@@ -221,55 +129,8 @@ def generate_summary_report(
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{safe_tc_name} — {safe_status}</title>
 <style>
-*{{box-sizing:border-box;margin:0;padding:0}}
-body{{background:#0d1117;color:#c9d1d9;font-family:-apple-system,Segoe UI,Roboto,sans-serif;min-height:100vh;padding:0}}
-.banner{{padding:28px 32px 20px;text-align:center}}
-.banner.pass{{background:#0f2d1a;border-bottom:2px solid #2ea043}}
-.banner.fail{{background:#2d0f0f;border-bottom:2px solid #da3633}}
-.banner.skip{{background:#2d2d0f;border-bottom:2px solid #d29922}}
-.banner .status{{font-size:48px;font-weight:800;letter-spacing:2px}}
-.banner .status.pass{{color:#56d364}}
-.banner .status.fail{{color:#ff7b72}}
-.banner .status.skip{{color:#d29922}}
-.banner .meta{{margin-top:8px;font-size:14px;color:#8b949e}}
-.banner .meta span{{margin:0 12px}}
-.banner .rec-badge{{display:inline-block;background:#1c2128;padding:3px 10px;border-radius:10px;font-size:12px;color:#58a6ff;text-decoration:none;margin:8px 4px 0}}
-.banner .rec-badge:hover{{background:#30363d}}
-.stats{{display:flex;gap:16px;justify-content:center;padding:20px 32px;background:#161b22;border-bottom:1px solid #30363d;flex-wrap:wrap}}
-.stat-box{{text-align:center;min-width:80px}}
-.stat-box .num{{font-size:24px;font-weight:700}}
-.stat-box .num.pass{{color:#56d364}}
-.stat-box .num.fail{{color:#ff7b72}}
-.stat-box .label{{font-size:11px;color:#6e7681;text-transform:uppercase;letter-spacing:.05em;margin-top:2px}}
-.filters{{padding:12px 32px;display:flex;gap:8px;align-items:center;background:#161b22;border-bottom:1px solid #30363d;flex-wrap:wrap}}
-.filters button{{padding:4px 14px;border:1px solid #30363d;border-radius:6px;background:#1c2128;color:#c9d1d9;cursor:pointer;font-size:12px}}
-.filters button:hover{{background:#30363d}}
-.filters button.active{{background:#388bfd;border-color:#388bfd;color:#fff}}
-.filters input{{flex:1;min-width:180px;padding:5px 10px;border:1px solid #30363d;border-radius:6px;background:#0d1117;color:#c9d1d9;font-size:13px;outline:none}}
-.filters input:focus{{border-color:#58a6ff}}
-table{{width:100%;border-collapse:collapse}}
-th{{background:#161b22;padding:8px 12px;text-align:left;font-size:11px;color:#6e7681;text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid #30363d;position:sticky;top:0}}
-td{{padding:8px 12px;border-bottom:1px solid #21262d;font-size:13px;vertical-align:middle}}
-tr.pass{{background:transparent}}
-tr.fail{{background:#2d0f0f33}}
-tr.fail:hover{{background:#2d0f0f66}}
-tr.pass:hover{{background:#1c2128}}
-.status-badge{{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700;min-width:44px;text-align:center}}
-.status-badge.pass{{background:#0f2d1a;color:#56d364;border:1px solid #2ea04333}}
-.status-badge.fail{{background:#2d0f0f;color:#ff7b72;border:1px solid #da363333}}
-td .screenshot{{max-width:72px;max-height:54px;border-radius:4px;border:1px solid #30363d;cursor:pointer;vertical-align:middle}}
-td .error-text{{color:#ff7b72;font-size:12px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer}}
-.no-runs{{text-align:center;padding:40px;color:#6e7681;font-style:italic}}
-.error-panel{{background:#161b22;border-top:1px solid #30363d;border-bottom:1px solid #30363d;padding:20px 32px}}
-.error-panel h2{{font-size:14px;color:#ff7b72;text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px}}
-.error-panel pre{{background:#0d1117;border:1px solid #30363d;border-radius:6px;padding:12px;color:#ff7b72;font-size:12px;white-space:pre-wrap;word-break:break-word;margin-bottom:12px}}
-.error-panel img{{max-width:100%;border-radius:6px;border:1px solid #30363d}}
-.modal{{display:none;position:fixed;inset:0;z-index:100;align-items:center;justify-content:center}}
-.modal-bg{{position:fixed;inset:0;background:rgba(0,0,0,.8)}}
-.modal-content{{position:relative;z-index:101;max-width:90%;max-height:90%}}
-.modal-content img{{max-width:100%;max-height:85vh;border-radius:8px;border:1px solid #30363d}}
-.modal-close{{position:absolute;top:-32px;right:0;background:none;border:none;color:#8b949e;font-size:20px;cursor:pointer}}
-.modal-close:hover{{color:#f0f6fc}}
+{THEME_CSS}
+{_REPORT_CSS}
 </style></head><body>
 <div class="banner {status_cls}">
   <div class="status {status_cls}">{safe_status}</div>
@@ -368,6 +229,6 @@ function closeModal(){document.getElementById('modal').style.display='none';}
 document.addEventListener('keydown',function(e){if(e.key==='Escape')closeModal();});
 </script></body></html>""")
 
-    out = out_dir / "report_summary.html"
+    out = out_dir / "report.html"
     out.write_text("".join(parts), encoding="utf-8")
     return out

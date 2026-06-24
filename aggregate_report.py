@@ -8,6 +8,11 @@ from datetime import date, datetime
 from html import escape
 from pathlib import Path
 
+try:
+    from dagster.report_theme import THEME_CSS
+except ModuleNotFoundError:
+    from report_theme import THEME_CSS
+
 _FOLDER_RE = re.compile(r"^(.+)_(\d{8})_(\d{6})$")
 _STATUS_RE = re.compile(r"^#\s*Status:\s*(PASS|FAIL|SKIP)\b", re.MULTILINE)
 
@@ -77,28 +82,8 @@ def group_by_date(entries: list[RunEntry]) -> list[tuple[str, list[RunEntry]]]:
     return sorted(by_date.items(), key=lambda kv: kv[0], reverse=True)
 
 _CSS = """
-:root {
-  --bg: #0f1115;
-  --bg-card: #1a1d24;
-  --bg-item: #252a33;
-  --text-main: #e2e8f0;
-  --text-dim: #94a3b8;
-  --border: #334155;
-  --accent: #3b82f6;
-  --accent-hover: #60a5fa;
-  --pass: #10b981;
-  --fail: #ef4444;
-  --skip: #64748b;
-  --r: 8px;
-}
-body { 
-  font-family: 'Inter', -apple-system, sans-serif; 
-  background: var(--bg); 
-  color: var(--text-main); 
-  margin: 0; 
-  padding: 40px 24px;
-}
-.container { 
+body { padding: 40px 24px; }
+.container {
   max-width: 900px; 
   margin: 0 auto; 
 }
@@ -210,6 +195,24 @@ li:hover { border-color: var(--border); transform: translateX(4px); }
   color: var(--text-dim);
   min-width: 64px;
 }
+.terminate-btn {
+  background: none; border: 1px solid var(--fail); color: var(--fail);
+  cursor: pointer; padding: 4px 10px; border-radius: 4px; font-size: 12px; font-weight: 600;
+  transition: all 0.2s; display: none;
+}
+.terminate-btn:hover { background: rgba(239,68,68,0.15); }
+.logs-btn {
+  background: none; border: 1px solid var(--text-dim); color: var(--text-dim);
+  cursor: pointer; padding: 4px 10px; border-radius: 4px; font-size: 12px; font-weight: 600;
+  transition: all 0.2s; display: none;
+}
+.logs-btn:hover { background: rgba(148,163,184,0.15); color: #fff; }
+.run-logs-container {
+  display: none; flex-direction: column; background: #000; color: #0f0;
+  font-family: monospace; padding: 10px; font-size: 12px; max-height: 300px;
+  overflow-y: auto; border-radius: 4px; margin-top: 4px; margin-bottom: 8px;
+}
+.run-logs-container pre { margin: 0; white-space: pre-wrap; }
 .empty-state {
   text-align: center;
   padding: 40px;
@@ -246,6 +249,33 @@ li:hover { border-color: var(--border); transform: translateX(4px); }
 }
 #modal-close:hover { background: var(--bg-item); color: #fff; }
 #modal-frame { flex: 1; border: none; background: #fff; }
+
+/* Summary bar */
+.summary-bar {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px;
+}
+.metric {
+  background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--r);
+  padding: 14px 18px;
+}
+.metric .label { font-size: 12px; color: var(--text-dim); text-transform: uppercase; letter-spacing: .05em; }
+.metric .value { font-size: 26px; font-weight: 700; margin-top: 4px; }
+.metric .value.pass { color: var(--pass); }
+.metric .value.fail { color: var(--fail); }
+
+/* Controls */
+.controls { display: flex; gap: 10px; align-items: center; margin-bottom: 20px; flex-wrap: wrap; }
+#dash-search {
+  flex: 1; min-width: 200px; padding: 8px 12px; border: 1px solid var(--border);
+  border-radius: var(--r); background: var(--bg-card); color: var(--text-main); font-size: 14px; outline: none;
+}
+#dash-search:focus { border-color: var(--accent); }
+.filter-pill {
+  padding: 7px 14px; border: 1px solid var(--border); border-radius: var(--r);
+  background: var(--bg-card); color: var(--text-dim); cursor: pointer; font-size: 13px; font-weight: 600;
+}
+.filter-pill:hover { background: var(--bg-item); }
+.filter-pill.active { background: var(--accent); border-color: var(--accent); color: #fff; }
 """.strip()
 
 _JS = """
@@ -321,11 +351,32 @@ async function deleteAllRuns(btn, dateStr) {
 })();
 
 var _runsEtag = '';
+var _runOffsets = {};
+
+function toggleLogs(folder) {
+  var el = document.getElementById('logs-' + folder);
+  el.style.display = (el.style.display === 'none' || el.style.display === '') ? 'flex' : 'none';
+}
+
+async function terminateTest(btn, folder) {
+  if (!confirm('Terminate running test?')) return;
+  var jobId = btn.getAttribute('data-job-id');
+  if (!jobId) return;
+  btn.disabled = true;
+  try {
+    await fetch('/rerun-terminate/' + encodeURIComponent(jobId), {method: 'POST'});
+  } catch (err) {}
+}
 
 async function rerunTest(btn, folder) {
   btn.disabled = true;
   btn.textContent = '…';
   var statusEl = document.querySelector('.rerun-status[data-folder="' + folder + '"]');
+  var termBtn = document.querySelector('.terminate-btn[data-folder="' + folder + '"]');
+  var logsBtn = document.querySelector('.logs-btn[data-folder="' + folder + '"]');
+  var preEl = document.getElementById('pre-' + folder);
+  var logsContainer = document.getElementById('logs-' + folder);
+
   if (statusEl) statusEl.textContent = 'Starting…';
   try {
     var r = await fetch('/rerun/' + encodeURIComponent(folder), {method: 'POST'});
@@ -337,7 +388,18 @@ async function rerunTest(btn, folder) {
       return;
     }
     if (statusEl) statusEl.textContent = 'Running…';
-    pollRerunStatus(btn, folder, data.job_id, statusEl);
+    
+    if (termBtn) {
+      termBtn.style.display = 'inline-block';
+      termBtn.disabled = false;
+      termBtn.setAttribute('data-job-id', data.job_id);
+    }
+    if (logsBtn) logsBtn.style.display = 'inline-block';
+    if (preEl) preEl.textContent = 'Waiting for logs...\\n';
+    if (logsContainer) logsContainer.style.display = 'flex';
+    
+    _runOffsets[data.job_id] = 0;
+    pollRerunStatus(btn, folder, data.job_id, statusEl, termBtn, logsBtn, preEl, logsContainer);
   } catch (err) {
     btn.disabled = false;
     btn.textContent = '↺ Rerun';
@@ -345,8 +407,20 @@ async function rerunTest(btn, folder) {
   }
 }
 
-function pollRerunStatus(btn, folder, jobId, statusEl) {
+function pollRerunStatus(btn, folder, jobId, statusEl, termBtn, logsBtn, preEl, logsContainer) {
   var intervalId = setInterval(async function() {
+    try {
+      var off = _runOffsets[jobId] || 0;
+      var lr = await fetch('/rerun-logs/' + encodeURIComponent(jobId) + '?offset=' + off);
+      var ldata = await lr.json();
+      if (ldata.text) {
+        if (preEl.textContent === 'Waiting for logs...\\n') preEl.textContent = '';
+        preEl.textContent += ldata.text;
+        if (logsContainer) logsContainer.scrollTop = logsContainer.scrollHeight;
+      }
+      _runOffsets[jobId] = ldata.offset;
+    } catch(e) {}
+
     try {
       var r = await fetch('/rerun-status/' + encodeURIComponent(jobId));
       var data = await r.json();
@@ -354,6 +428,7 @@ function pollRerunStatus(btn, folder, jobId, statusEl) {
         clearInterval(intervalId);
         btn.disabled = false;
         btn.textContent = '↺ Rerun';
+        if (termBtn) termBtn.style.display = 'none';
         if (statusEl) statusEl.textContent = data.status === 'done' ? '✓ Done' : '✗ Failed';
         refreshRunList();
       }
@@ -361,9 +436,10 @@ function pollRerunStatus(btn, folder, jobId, statusEl) {
       clearInterval(intervalId);
       btn.disabled = false;
       btn.textContent = '↺ Rerun';
+      if (termBtn) termBtn.style.display = 'none';
       if (statusEl) statusEl.textContent = 'Error';
     }
-  }, 3000);
+  }, 2000);
 }
 
 async function refreshRunList() {
@@ -378,6 +454,40 @@ async function refreshRunList() {
     // server offline — skip refresh
   }
 }
+
+function applyDashboardFilters() {
+  var searchEl = document.getElementById('dash-search');
+  var q = (searchEl ? searchEl.value : '').toLowerCase();
+  var active = document.querySelector('.filter-pill.active');
+  var sf = active ? active.getAttribute('data-status') : 'all';
+  document.querySelectorAll('details').forEach(function(d) {
+    var visible = 0;
+    d.querySelectorAll('.run-item').forEach(function(li) {
+      var name = li.getAttribute('data-name') || '';
+      var st = li.getAttribute('data-status') || '';
+      var show = true;
+      if (sf !== 'all' && st !== sf) show = false;
+      if (q && name.indexOf(q) === -1) show = false;
+      li.style.display = show ? '' : 'none';
+      var logs = li.nextElementSibling;
+      if (logs && logs.classList.contains('run-logs-container') && !show) logs.style.display = 'none';
+      if (show) visible++;
+    });
+    d.style.display = visible ? '' : 'none';
+  });
+}
+
+(function() {
+  var searchEl = document.getElementById('dash-search');
+  if (searchEl) searchEl.addEventListener('input', applyDashboardFilters);
+  document.querySelectorAll('.filter-pill').forEach(function(p) {
+    p.addEventListener('click', function() {
+      document.querySelectorAll('.filter-pill').forEach(function(x) { x.classList.remove('active'); });
+      this.classList.add('active');
+      applyDashboardFilters();
+    });
+  });
+})();
 """
 
 def _count_statuses(rows: list[RunEntry]) -> str:
@@ -399,7 +509,7 @@ def render_html(groups: list[tuple[str, list[RunEntry]]]) -> str:
         '<meta charset="utf-8">',
         '<meta name="viewport" content="width=device-width, initial-scale=1">',
         '<title>Dagster Test Reports</title>',
-        f'<style>{_CSS}</style>',
+        f'<style>{THEME_CSS}\n{_CSS}</style>',
         '</head>',
         '<body>',
         '<div class="container">',
@@ -410,6 +520,25 @@ def render_html(groups: list[tuple[str, list[RunEntry]]]) -> str:
     if not groups:
         html.append('<p class="empty-state">No test runs found. Generate some reports to see them here!</p>')
     else:
+        all_rows = [r for _, rows in groups for r in rows]
+        n_pass = sum(1 for r in all_rows if r.status == "PASS")
+        n_fail = sum(1 for r in all_rows if r.status == "FAIL")
+        denom = n_pass + n_fail
+        pass_rate = f"{round(100 * n_pass / denom)}%" if denom else "&mdash;"
+        html.append('<div class="summary-bar">')
+        html.append(f'<div class="metric"><div class="label">Runs</div><div class="value">{len(all_rows)}</div></div>')
+        html.append(f'<div class="metric"><div class="label">Passed</div><div class="value pass">{n_pass}</div></div>')
+        html.append(f'<div class="metric"><div class="label">Failed</div><div class="value fail">{n_fail}</div></div>')
+        html.append(f'<div class="metric"><div class="label">Pass rate</div><div class="value">{pass_rate}</div></div>')
+        html.append('</div>')
+        html.append('<div class="controls">')
+        html.append('<input type="text" id="dash-search" placeholder="Filter by test name…">')
+        html.append('<button class="filter-pill active" data-status="all">All</button>')
+        html.append('<button class="filter-pill" data-status="pass">Pass</button>')
+        html.append('<button class="filter-pill" data-status="fail">Fail</button>')
+        html.append('<button class="filter-pill" data-status="skip">Skip</button>')
+        html.append('</div>')
+
         for date_str, rows in groups:
             open_attr = " open" if date_str == today_str else ""
             summary = f"{escape(date_str)} &mdash; {escape(_count_statuses(rows))}"
@@ -427,7 +556,7 @@ def render_html(groups: list[tuple[str, list[RunEntry]]]) -> str:
                 folder = escape(r.folder)
                 time_str = r.when.strftime("%H:%M:%S")
                 
-                html.append('<li class="run-item">')
+                html.append(f'<li class="run-item" data-status="{status_cls}" data-name="{escape(r.stem.lower(), quote=True)}">')
                 html.append('<div class="run-main">')
                 html.append(f'<span class="badge {status_cls}">{escape(r.status)}</span>')
                 html.append(f'<a class="run-name" href="{href}" onclick="openReport(event, \'{href}\', \'{stem}\')">{stem}</a>')
@@ -435,12 +564,15 @@ def render_html(groups: list[tuple[str, list[RunEntry]]]) -> str:
                 html.append('<div class="run-meta">')
                 html.append(f'<span class="run-time">{time_str}</span>')
                 html.append(f'<button class="rerun-btn" data-folder="{folder}" onclick="rerunTest(this, \'{folder}\')" title="Rerun this test">↺ Rerun</button>')
+                html.append(f'<button class="terminate-btn" data-folder="{folder}" onclick="terminateTest(this, \'{folder}\')" title="Terminate this test">⏹ Terminate</button>')
+                html.append(f'<button class="logs-btn" data-folder="{folder}" onclick="toggleLogs(\'{folder}\')" title="Toggle CLI Logs">📄 Logs</button>')
                 html.append(f'<span class="rerun-status" data-folder="{folder}"></span>')
                 html.append(f'<button class="delete-btn" title="Delete Report" onclick="deleteRun(event, \'{folder}\')">')
                 html.append('<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path></svg>')
                 html.append('</button>')
                 html.append('</div>')
                 html.append('</li>')
+                html.append(f'<li class="run-logs-container" id="logs-{folder}"><pre id="pre-{folder}"></pre></li>')
                 
             html.append('</ul></div></details>')
             
