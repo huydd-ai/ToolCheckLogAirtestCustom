@@ -38,13 +38,13 @@ Pure extension of the two existing modules. No new dependencies. Reuses the dark
 the `_jobs` job machinery, and the live-log stream.
 
 ```
-Browser (report.html)
-  ├── Report tab      ── GET /api/runs        → scan_runs()            (suite-grouped render)
-  └── Catalog tab     ── GET /api/catalog      → scan_catalog() ⋈ scan_runs()
-                         POST /run {air_path}  → guard → spawn dagster_run.py → _jobs
-                         GET  /rerun-logs/<id>  ┐
-                         GET  /rerun-status/<id>├─ EXISTING, unchanged, reused by /run
-                         POST /rerun-terminate/<id> ┘
+Server-rendered report.html (both tabs built at generation time)
+  ├── Report tab   ← scan_runs()                  (suite → day → runs)
+  └── Catalog tab  ← scan_catalog() ⋈ scan_runs()  (suite → test cases + last status)
+        Run button ── POST /run {air_path}  → guard → spawn dagster_run.py → _jobs
+                      GET  /rerun-logs/<id>  ┐
+                      GET  /rerun-status/<id>├─ EXISTING, unchanged, reused by /run
+                      POST /rerun-terminate/<id> ┘
 ```
 
 ### The unifying move: a `suite` field
@@ -70,7 +70,7 @@ on `(suite, stem)` — avoiding collisions when two suites contain a same-named 
 
 ### 1. Catalog scan (filesystem, independent of `report_run/`)
 
-New helper (in `aggregate_report.py` or a small new module):
+New helper in `aggregate_report.py`:
 
 ```
 scan_catalog(test_root: Path) -> dict[str, list[str]]   # {suite: [stem, ...]}
@@ -85,17 +85,11 @@ pattern `dagster_run.py` already uses).
 
 ### 2. Catalog ⋈ history join
 
-`/api/catalog` returns, per suite, per test case:
-
-```json
-{ "suite": "HeartSystem", "stem": "tc01_check_ui_ux_heart",
-  "air_path": "Test/HeartSystem/tc01_check_ui_ux_heart.air",
-  "run_count": 3, "last_status": "PASS", "last_run_href": "tc01_..._20260624_101500/report.html" }
-```
-
-Join `scan_catalog()` against `scan_runs()` on `(suite, stem)`. Never-run tests →
-`run_count: 0, last_status: null, last_run_href: null`. Join done **server-side** (single
-source of truth); the browser just renders.
+The catalog tab is **server-rendered HTML** (same pattern as the existing date report — no
+JSON API, no client-side join). When building `report.html`, join `scan_catalog()` against
+`scan_runs()` on `(suite, stem)` to compute, per test case: `last_status` (or "never run")
+and `last_run_href` (link to its newest run's report, or none). Emit the catalog markup
+directly. Never-run tests render with a "never run" badge and no link.
 
 ### 3. `POST /run` endpoint
 
@@ -136,23 +130,10 @@ sorts last.
 ### 5. Catalog UI tab
 
 Add a tab toggle to `report.html` (`Report` | `Test Catalog`), same page, same theme.
-Catalog view: per suite a collapsible section listing its test cases; each row shows the
-status badge from the join (or "never run") + a ▶ Run button. Run button → `POST /run` →
-on `job_id`, open the **existing** live-log panel/poller (same component reruns use).
-
-## Structural cleanups (do while touching, not prerequisites)
-
-- **Extract job manager.** `report_server.py` already mixes static-serve + delete +
-  job-manager + rerun; catalog + `/run` push it past comfortable. While editing, move
-  `_jobs`, `_jobs_lock`, `_handle_rerun*`, the shared concurrency guard, and `/run` into a
-  `jobs.py`. *ponytail: only because you're already in the file — not a standalone refactor.*
-- **Maybe split render.** `aggregate_report.py` is ~26KB with inline HTML/CSS/JS. If the
-  catalog tab adds significant markup, split a `render.py` (HTML strings) from the
-  scan/group/data logic. Judgment call at write time.
-- **Cap `_jobs`.** The dict is never pruned and each run drops a `<job_id>.log` in
-  `report_run/`; cheap catalog launches make this leak faster. Add a simple cap: on new
-  job, drop done jobs beyond the most-recent N (and unlink their stale `.log`).
-  *ponytail: bounded dict, not a background reaper.*
+Catalog view (server-rendered): per suite a collapsible section listing its test cases;
+each row shows the status badge from the join (or "never run") + a ▶ Run button. Run
+button → `POST /run` → on `job_id`, open the **existing** live-log panel/poller (same
+component reruns use).
 
 ## Error handling
 
@@ -177,8 +158,7 @@ on `job_id`, open the **existing** live-log panel/poller (same component reruns 
 
 | File | Change |
 |------|--------|
-| `aggregate_report.py` | `suite` field on `RunEntry`; populate in `scan_runs`; `scan_catalog`; `group_by_suite_then_date`; suite-grouped render |
-| `report_server.py` | `POST /run` + path guard; `GET /api/catalog`; catalog tab HTML/JS; shared concurrency guard; (extract job manager → `jobs.py`) |
-| `jobs.py` (new, optional) | `_jobs`, lock, spawn/guard/terminate moved out of `report_server.py` |
+| `aggregate_report.py` | `suite` field on `RunEntry`; populate in `scan_runs`; `scan_catalog`; `group_by_suite_then_date`; suite-grouped render; server-rendered catalog tab + history join |
+| `report_server.py` | `POST /run` + path guard; shared `(suite,stem)` concurrency guard |
 | `test_aggregate_report.py` | suite-grouping + unknown-bucket + collision tests |
 | new test file(s) | `scan_catalog`, `/run` guard, concurrency guard |
