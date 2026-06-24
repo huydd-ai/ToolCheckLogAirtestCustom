@@ -25,6 +25,9 @@ _dagster_dir = Path(__file__).resolve().parent
 _project_root = _dagster_dir.parent
 sys.path.insert(0, str(_project_root))
 
+PROJECT_ROOT = _project_root
+TEST_ROOT = (_project_root / "Test").resolve()
+
 from dagster.aggregate_report import regenerate_global_report
 
 
@@ -157,8 +160,56 @@ class ReportHandler(SimpleHTTPRequestHandler):
             job_id = self.path.removeprefix("/rerun-terminate/")
             self._handle_rerun_terminate(job_id)
             return
+        if self.path == "/run":
+            self._handle_run()
+            return
         self.send_response(405)
         self.end_headers()
+
+    def _handle_run(self) -> None:
+        length = int(self.headers.get("Content-Length", "0") or "0")
+        try:
+            payload = json.loads(self.rfile.read(length) or b"{}")
+            air_path = payload.get("air_path", "")
+        except (ValueError, OSError):
+            self._json(400, {"error": "bad request body"})
+            return
+        if not air_path:
+            self._json(400, {"error": "air_path required"})
+            return
+        p = (PROJECT_ROOT / air_path).resolve()
+        if not (p.exists() and p.suffix == ".air" and TEST_ROOT in p.parents):
+            self._json(400, {"error": "path must be an existing .air under Test/"})
+            return
+        suite = p.parent.name or "unknown"
+        stem = p.stem
+        with _jobs_lock:
+            if _find_running_job(suite, stem) is not None:
+                self._json(409, {"error": "already running"})
+                return
+            job_id = str(uuid.uuid4())
+            log_path = REPORT_ROOT / f"{job_id}.log"
+            log_file = log_path.open("w", encoding="utf-8")
+            dagster_run = Path(__file__).parent / "dagster_run.py"
+            import os
+            env = os.environ.copy()
+            env["PYTHONIOENCODING"] = "utf-8"
+            try:
+                proc = subprocess.Popen(
+                    [sys.executable, "-u", str(dagster_run), str(p)],
+                    stdout=log_file, stderr=subprocess.STDOUT, env=env,
+                )
+            except FileNotFoundError:
+                log_file.close()
+                self._json(500, {"error": "dagster_run.py not found"})
+                return
+            _jobs[job_id] = {
+                "job_id": job_id, "suite": suite, "stem": stem,
+                "air_path": str(p), "proc": proc, "status": "running",
+                "new_folder": None, "exit_code": None, "started": time.time(),
+                "log_file": log_file, "log_path": log_path,
+            }
+        self._json(200, {"job_id": job_id})
 
     def _handle_rerun_terminate(self, job_id: str) -> None:
         with _jobs_lock:

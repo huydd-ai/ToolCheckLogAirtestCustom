@@ -319,6 +319,77 @@ def test_api_runs_etag_304(tmp_path):
         server.shutdown()
 
 
+# ── /run path confinement ─────────────────────────────────────────────────────
+
+def test_run_rejects_path_outside_test_root(tmp_path):
+    server, _ = _make_test_server(tmp_path, 17081)
+    try:
+        req = urllib.request.Request(
+            "http://127.0.0.1:17081/run", method="POST",
+            data=json.dumps({"air_path": "../../etc/passwd"}).encode(),
+            headers={"Content-Type": "application/json"},
+        )
+        try:
+            with urllib.request.urlopen(req) as r:
+                status, body = r.status, json.loads(r.read())
+        except urllib.error.HTTPError as e:
+            status, body = e.code, json.loads(e.read())
+        assert status == 400
+        assert "error" in body
+    finally:
+        server.shutdown()
+
+
+def test_run_rejects_non_air(tmp_path, monkeypatch):
+    import report_server
+    monkeypatch.setattr(report_server, "PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr(report_server, "TEST_ROOT", (tmp_path / "Test").resolve())
+    (tmp_path / "Test" / "HeartSystem").mkdir(parents=True)
+    (tmp_path / "Test" / "HeartSystem" / "tc01.txt").write_text("x", encoding="utf-8")
+    server, _ = _make_test_server(tmp_path, 17082)
+    try:
+        req = urllib.request.Request(
+            "http://127.0.0.1:17082/run", method="POST",
+            data=json.dumps({"air_path": "Test/HeartSystem/tc01.txt"}).encode(),
+            headers={"Content-Type": "application/json"},
+        )
+        try:
+            with urllib.request.urlopen(req) as r:
+                status, body = r.status, json.loads(r.read())
+        except urllib.error.HTTPError as e:
+            status, body = e.code, json.loads(e.read())
+        assert status == 400
+    finally:
+        server.shutdown()
+
+
+def test_run_accepts_valid_air_returns_job_id(tmp_path, monkeypatch):
+    import report_server
+    monkeypatch.setattr(report_server, "PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr(report_server, "TEST_ROOT", (tmp_path / "Test").resolve())
+    air = tmp_path / "Test" / "HeartSystem" / "tc01_a.air"
+    air.parent.mkdir(parents=True)
+    air.mkdir()  # .air is a directory containing a .py (matches dagster layout)
+    (air / "tc01_a.py").write_text("def main(): pass\n", encoding="utf-8")
+    server, _ = _make_test_server(tmp_path, 17083)
+    try:
+        req = urllib.request.Request(
+            "http://127.0.0.1:17083/run", method="POST",
+            data=json.dumps({"air_path": "Test/HeartSystem/tc01_a.air"}).encode(),
+            headers={"Content-Type": "application/json"},
+        )
+        with urllib.request.urlopen(req) as r:
+            status, body = r.status, json.loads(r.read())
+        assert status == 200
+        assert len(body["job_id"]) == 36
+    finally:
+        with report_server._jobs_lock:
+            for job in report_server._jobs.values():
+                try: job["proc"].terminate()
+                except Exception: pass
+        server.shutdown()
+
+
 # ── dashboard HTML ────────────────────────────────────────────────────────────
 
 from aggregate_report import render_html, group_by_date, group_by_suite_then_date, RunEntry
