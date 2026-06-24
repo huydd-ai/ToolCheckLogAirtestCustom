@@ -1,12 +1,13 @@
 import importlib
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
 
 from airtest.core.api import auto_setup, G
 from airtest.core.settings import Settings as ST
 
-from dagster.reporting import write_log_txt, generate_html, generate_summary_report
+from dagster.reporting import write_log_txt, generate_summary_report
 from dagster.step_capture import clear_steps, get_steps
 from dagster.OpenCVAnnotator import OpenCVAnnotator
 
@@ -14,6 +15,7 @@ from dagster.OpenCVAnnotator import OpenCVAnnotator
 def run_single_test(air_path: Path, py_script: Path, mode: str, device_id: str, report_root: Path) -> bool:
     """Run a single Airtest module, capture steps, video, and generate report. Returns True if failed."""
     module_name = py_script.stem
+    t0 = time.time()
     ts_str = datetime.now().strftime("%Y%m%d_%H%M%S")
     out_dir = report_root / f"{air_path.stem}_{ts_str}"
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -31,7 +33,8 @@ def run_single_test(air_path: Path, py_script: Path, mode: str, device_id: str, 
         from dagster.OpenCVRecorder import OpenCVRecorder
         recorder = OpenCVRecorder(
             output=str(recording_path),
-            fps=10,
+            fps=120,
+            scale=0.5,
         )
         recorder.start()
     except Exception as e:
@@ -140,20 +143,25 @@ def run_single_test(air_path: Path, py_script: Path, mode: str, device_id: str, 
 
         recordings = [*recordings, *sorted(out_dir.glob("recording_*.mp4"))]
 
+        airtest_log_text = None
+        if airtest_log.exists():
+            try:
+                airtest_log_text = airtest_log.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                pass
+
+        elapsed = time.time() - t0
         try:
-            generate_html(air_path, out_dir, mode, ndjson_name="airtest.log", recordings=recordings, status=status)
-            print(f"[INFO] report.html generated")
+            report_path = generate_summary_report(
+                out_dir, air_path.stem, steps, status, recordings, error_top,
+                airtest_log=airtest_log_text, elapsed=elapsed,
+            )
+            print(f"[INFO] report: {report_path.name}")
         except Exception as e:
             print(f"[WARN] Failed to generate report: {e}", file=sys.stderr)
 
         try:
-            summary_path = generate_summary_report(out_dir, air_path.stem, steps, status, recordings, error_top)
-            print(f"[INFO] summary report: {summary_path.name}")
-        except Exception as e:
-            print(f"[WARN] Failed to generate summary report: {e}", file=sys.stderr)
-
-        try:
-            write_log_txt(out_dir, air_path.stem, steps, error_top, air_path=air_path)
+            write_log_txt(out_dir, air_path.stem, steps, error_top, air_path=air_path, device_id=device_id)
             print(f"[INFO] log.txt written with {len(steps)} steps")
         except Exception as e:
             print(f"[WARN] Failed to write log.txt: {e}", file=sys.stderr)

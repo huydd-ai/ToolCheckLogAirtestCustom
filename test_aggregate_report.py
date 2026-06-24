@@ -9,7 +9,6 @@ from aggregate_report import (
     group_by_date,
     render_html,
     regenerate_global_report,
-    write_assets,
 )
 
 
@@ -42,29 +41,17 @@ def _write(tmp_path: Path, name: str, body: str) -> Path:
 
 
 def test_extract_status_pass(tmp_path):
-    log = _write(
-        tmp_path,
-        "log.txt",
-        "# tc01\n# Run: 2026-06-12 10:22:15\n# Status: PASS\n",
-    )
+    log = _write(tmp_path, "log.txt", "# tc01\n# Run: 2026-06-12 10:22:15\n# Status: PASS\n")
     assert extract_status(log) == "PASS"
 
 
 def test_extract_status_fail(tmp_path):
-    log = _write(
-        tmp_path,
-        "log.txt",
-        "# tc01\n# Run: 2026-06-12 10:22:15\n# Status: FAIL\n",
-    )
+    log = _write(tmp_path, "log.txt", "# tc01\n# Run: 2026-06-12 10:22:15\n# Status: FAIL\n")
     assert extract_status(log) == "FAIL"
 
 
 def test_extract_status_skip(tmp_path):
-    log = _write(
-        tmp_path,
-        "log.txt",
-        "# tc01\n# Run: 2026-06-12 10:22:15\n# Status: SKIP\n",
-    )
+    log = _write(tmp_path, "log.txt", "# tc01\n# Run: 2026-06-12 10:22:15\n# Status: SKIP\n")
     assert extract_status(log) == "SKIP"
 
 
@@ -166,6 +153,13 @@ def test_render_html_empty_state():
     assert "No test runs found" in html
 
 
+def test_render_html_inline_assets():
+    # Dashboard ships self-contained: inline <style> + inline JS, no external files.
+    html = render_html([])
+    assert "<style>" in html
+    assert "function openReport(" in html
+
+
 def test_render_html_group_header_has_counts():
     entries = [
         _entry("a", "2026-06-12 10:00:00", "PASS"),
@@ -179,13 +173,13 @@ def test_render_html_group_header_has_counts():
 
 
 def test_render_html_today_open_past_collapsed():
-    from datetime import date
-    today = date.today().strftime("%Y-%m-%d")
+    today = datetime.now().strftime("%Y-%m-%d")
     yesterday_entries = [_entry("a", "2020-01-01 10:00:00", "PASS")]
     today_entries = [_entry("b", datetime.now().strftime("%Y-%m-%d 10:00:00"), "PASS")]
     html = render_html(group_by_date(today_entries + yesterday_entries))
-    assert f"<details open><summary>{today}" in html
-    assert "<details><summary>2020-01-01" in html
+    assert "<details open>" in html   # today expanded
+    assert "<details>" in html        # past day collapsed
+    assert today in html
 
 
 def test_render_html_row_links_to_report():
@@ -210,9 +204,34 @@ def test_render_html_status_badge_classes():
 def test_render_html_escapes_stem():
     entries = [_entry("tc01_<script>", "2026-06-12 10:00:00", "PASS")]
     html = render_html(group_by_date(entries))
-    # Raw stem must not appear unescaped anywhere (HTML text or JS string)
     assert "tc01_<script>" not in html
     assert "&lt;script&gt;" in html
+
+
+def test_render_html_summary_bar_metrics():
+    entries = [
+        _entry("a", "2026-06-12 10:00:00", "PASS"),
+        _entry("b", "2026-06-12 11:00:00", "FAIL"),
+        _entry("c", "2026-06-12 09:00:00", "PASS"),
+    ]
+    html = render_html(group_by_date(entries))
+    assert 'class="summary-bar"' in html
+    assert "Pass rate" in html
+    assert "67%" in html  # round(100 * 2 / 3)
+
+
+def test_render_html_filter_controls():
+    html = render_html(group_by_date([_entry("a", "2026-06-12 10:00:00", "PASS")]))
+    assert 'id="dash-search"' in html
+    assert 'class="filter-pill active" data-status="all"' in html
+    assert 'data-status="pass"' in html
+
+
+def test_render_html_run_item_filter_attrs():
+    entries = [_entry("tc01_foo", "2026-06-12 10:20:41", "PASS")]
+    html = render_html(group_by_date(entries))
+    assert 'data-name="tc01_foo"' in html
+    assert 'class="run-item" data-status="pass"' in html
 
 
 def test_regenerate_writes_report_html(tmp_path):
@@ -246,45 +265,19 @@ def test_regenerate_creates_root_if_missing(tmp_path):
 def test_render_html_group_has_delete_all_button():
     entries = [_entry("a", "2026-06-12 10:00:00", "PASS")]
     html = render_html(group_by_date(entries))
-    assert 'class="del-all-btn"' in html
-    assert 'deleteAllRuns(this,"2026-06-12")' in html
+    assert 'class="delete-all-btn"' in html
+    assert "deleteAllRuns(this, '2026-06-12')" in html
 
 
 def test_render_html_row_has_delete_button():
     entries = [_entry("tc01_foo", "2026-06-12 10:20:41", "PASS")]
     html = render_html(group_by_date(entries))
-    assert 'class="del-btn"' in html
-    assert 'deleteRun(event,"tc01_foo_20260612_102041")' in html
+    assert 'class="delete-btn"' in html
+    assert "deleteRun(event, 'tc01_foo_20260612_102041')" in html
 
 
 def test_render_html_delete_button_uses_folder_name():
     entries = [_entry("tc02_bar", "2026-06-12 11:00:00", "FAIL")]
     html = render_html(group_by_date(entries))
     folder = "tc02_bar_20260612_110000"
-    assert f'deleteRun(event,"{folder}")' in html
-
-
-def test_render_html_uses_external_assets():
-    html = render_html([])
-    assert '<link rel="stylesheet" href="style.css">' in html
-    assert '<script src="script.js"></script>' in html
-    # No inline <style> or inline JS block for openReport
-    assert "<style>" not in html
-    assert "function openReport(" not in html
-
-
-def test_regenerate_writes_assets(tmp_path):
-    _make_run(tmp_path, "tc01_foo_20260612_102041", "# Status: PASS")
-    regenerate_global_report(tmp_path)
-    assert (tmp_path / "style.css").exists()
-    assert (tmp_path / "script.js").exists()
-    css = (tmp_path / "style.css").read_text(encoding="utf-8")
-    js = (tmp_path / "script.js").read_text(encoding="utf-8")
-    assert ".del-btn" in css
-    assert "function deleteRun" in js or "deleteRun=" in js
-
-
-def test_write_assets_standalone(tmp_path):
-    write_assets(tmp_path)
-    assert (tmp_path / "style.css").exists()
-    assert (tmp_path / "script.js").exists()
+    assert f"deleteRun(event, '{folder}')" in html

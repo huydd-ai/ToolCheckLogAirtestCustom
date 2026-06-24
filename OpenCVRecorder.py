@@ -7,6 +7,7 @@ class OpenCVRecorder:
     def __init__(self, output: str | Path, fps: int = 10, **kwargs):
         self.output = Path(output)
         self.fps = fps
+        self.scale = kwargs.get("scale", 1.0)
         self._thread = None
         self._stop_event = threading.Event()
         self._writer = None
@@ -51,6 +52,8 @@ class OpenCVRecorder:
             if self._writer is None:
                 if self._current_frame is not None:
                     h, w = self._current_frame.shape[:2]
+                    if self.scale != 1.0:
+                        h, w = int(h * self.scale), int(w * self.scale)
                     # Try MSMF avc1 first for browser compatibility on Windows
                     fourcc = cv2.VideoWriter_fourcc(*'avc1')
                     candidate = cv2.VideoWriter(str(self.output), cv2.CAP_MSMF, fourcc, float(self.fps), (w, h))
@@ -80,8 +83,13 @@ class OpenCVRecorder:
 
             if frames_to_write > 0 and self._current_frame is not None:
                 try:
+                    frame_to_write = self._current_frame
+                    if self.scale != 1.0:
+                        fh, fw = frame_to_write.shape[:2]
+                        frame_to_write = cv2.resize(frame_to_write, (int(fw * self.scale), int(fh * self.scale)))
+                    
                     for _ in range(frames_to_write):
-                        self._writer.write(self._current_frame)
+                        self._writer.write(frame_to_write)
                         frames_written += 1
                 except Exception as e:
                     print(f"[WARN] OpenCVRecorder error writing frame: {e}")

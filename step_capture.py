@@ -65,6 +65,7 @@ def _hooked_run_step(name: str, action: Callable[..., Any], *args: Any, **kwargs
         "duration": None,
     }
     start = _time.time()
+    print(f"[{_datetime.now().strftime('%H:%M:%S')}] ⏳ RUNNING: {name} ({action_name})", flush=True)
     try:
         result = _orig_run_step(name, action, *args, **kwargs)
         screen_path = _snapshot_step(name)
@@ -72,6 +73,7 @@ def _hooked_run_step(name: str, action: Callable[..., Any], *args: Any, **kwargs
         step["screenshot"] = screen_path or _latest_screenshot()
         step["duration"] = round(_time.time() - start, 2)
         _steps.append(step)
+        print(f"[{_datetime.now().strftime('%H:%M:%S')}] ✅ PASS: {name} ({step['duration']}s)", flush=True)
         _emit_step_log(name, action_name, start, _time.time(), ret=screen_path, traceback=None)
         return result
     except Exception as exc:
@@ -81,6 +83,7 @@ def _hooked_run_step(name: str, action: Callable[..., Any], *args: Any, **kwargs
         step["behaviour"] = str(exc)
         step["duration"] = round(_time.time() - start, 2)
         _steps.append(step)
+        print(f"[{_datetime.now().strftime('%H:%M:%S')}] ❌ FAIL: {name} ({step['duration']}s)", flush=True)
         _emit_step_log(name, action_name, start, _time.time(), ret=screen_path, traceback=str(exc))
         raise
     finally:

@@ -49,7 +49,20 @@ def main():
     args, _ = parser.parse_known_args(sys.argv[1:])
 
     # 3. Test Discovery
-    tests = sorted({p for a in args.target for m in _glob.glob(a, recursive=True) or [a] for p in Path(m).resolve().rglob("*.air") if p.is_dir()} | {Path(a).resolve() for a in args.target if Path(a).resolve().suffix == ".air"})
+    tests_set = set()
+    for target in args.target:
+        matches = _glob.glob(target, recursive=True)
+        if not matches:
+            matches = [target]
+        for m in matches:
+            p = Path(m).resolve()
+            if p.is_dir() and p.suffix == ".air":
+                tests_set.add(p)
+            elif p.is_dir():
+                for sub in p.rglob("*.air"):
+                    if sub.is_dir():
+                        tests_set.add(sub.resolve())
+    tests = sorted(tests_set)
     if not tests:
         sys.exit(f"[ERROR] No .air projects found in: {args.target}")
         

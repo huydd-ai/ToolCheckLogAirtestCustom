@@ -8,7 +8,8 @@ Portable, modular runner for Airtest `.air` projects with structured step loggin
 |------------|---------|
 | `dagster_run.py` | CLI Entrypoint. Handles test discovery, modes, and iterates through tests. |
 | `step_capture.py` | Monkey-patches `run_step` to capture per-step status, screenshots, and errors. |
-| `reporting.py` | Generates HTML reports and `log.txt`. Contains logic for filtering game step noise. |
+| `reporting.py` | Generates the per-run custom `report.html` and `log.txt`. |
+| `report_theme.py` | Shared dark-theme CSS (`THEME_CSS`) inlined into both the dashboard and per-run report. |
 | `runner.py` | The main test orchestration loop (`run_single_test`) with setup/teardown logic. |
 | `log_utils.py` | Configures console output logging for Airtest/Poco. |
 | `ScrcpyRecorder.py` | Subprocess wrapper around `scrcpy.exe` for Android screen recording (`.mp4`). |
@@ -26,10 +27,9 @@ Portable, modular runner for Airtest `.air` projects with structured step loggin
 
 ## Execution Modes
 
-The runner operates in two main modes via the `--mode` flag:
+The per-run report is a custom, self-contained `report.html` built from the captured named steps (`run_step(...)` calls), plus `log.txt`, per-step screenshots, and a scrcpy video.
 
-1. **`tester` (Default)**: Comprehensive auditing. Generates a full HTML report with every game step logged (`touch`, `snapshot`, etc.), a full scrcpy video, and a structured `log.txt` of all steps.
-2. **`dev`**: Fast debugging. Generates a clean HTML report that filters out noisy game steps, leaving only `info`, `error`, and exceptions. Skips `log.txt` generation, but still records a video.
+The `--mode` flag (`tester` default, `dev`) is **currently vestigial**: it used to filter the old Airtest report's step noise, but that report was replaced by the custom one, so both modes now produce identical output. Kept for CLI compatibility.
 
 ## Usage
 
@@ -48,14 +48,14 @@ python dagster_run.py path/to/test.air --device emulator-5554
 ```
 
 Output lands in `report_run/<test_stem>_<timestamp>/`:
-- `log.txt` — structured step log: `name: action, screenshot, status[, error]` (Tester mode only)
-- `report.html` — Airtest native HTML report
-- `report_summary.html` — Dagster custom summary report
+- `log.txt` — structured step log: `name: action, screenshot, status[, error]`
+- `report.html` — custom self-contained per-run report (status banner, step table, screenshots, recordings)
+- `airtest.log` — Airtest NDJSON; parsed by the runner for FAIL detection (not a report input)
 - `recording_<device>_<test>.mp4` — scrcpy capture
 
 ### Global Dashboard
 
-You can view a centralized dashboard of all test runs across all dates. It provides a rich UI to view passed/failed statuses, access native Airtest logs, and mass-delete old reports to save space.
+You can view a centralized dashboard of all test runs across all dates. It provides a rich UI with pass/fail summary metrics, name search and status filters, per-run reports in a modal, rerun, and mass-delete of old reports.
 
 ```powershell
 # Start the local server
