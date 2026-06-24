@@ -185,6 +185,7 @@ def test_rerun_reaps_stale_running_job(tmp_path):
         report_server._jobs["stale-0000"] = {
             "job_id": "stale-0000",
             "stem": "tc01_login",
+            "suite": Path(dummy_air).parent.name,
             "air_path": str(dummy_air),
             "proc": stale_proc,
             "status": "running",
@@ -206,6 +207,25 @@ def test_rerun_reaps_stale_running_job(tmp_path):
                 except Exception:
                     pass
         server.shutdown()
+
+
+def test_find_running_job_keys_on_suite_and_stem(tmp_path):
+    import report_server
+    report_server._jobs.clear()
+    import subprocess, sys, time
+    proc = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])
+    report_server._jobs["j1"] = {
+        "job_id": "j1", "suite": "HeartSystem", "stem": "tc01",
+        "proc": proc, "status": "running", "log_file": open(tmp_path / "j.log", "w"),
+        "log_path": tmp_path / "j.log",
+    }
+    try:
+        assert report_server._find_running_job("HeartSystem", "tc01") is not None
+        assert report_server._find_running_job("DailyMission", "tc01") is None  # different suite
+        assert report_server._find_running_job("HeartSystem", "tc02") is None   # different stem
+    finally:
+        proc.terminate()
+        report_server._jobs.clear()
 
 
 # ── /rerun-status endpoint ────────────────────────────────────────────────────

@@ -59,6 +59,22 @@ def _compute_etag(folder_names: list[str]) -> str:
 _jobs: dict[str, dict] = {}
 _jobs_lock = threading.Lock()
 
+
+def _find_running_job(suite: str, stem: str) -> dict | None:
+    """Return a still-running job for (suite, stem), reaping any whose process
+    already exited. Caller must hold _jobs_lock."""
+    for job in _jobs.values():
+        if job.get("suite") == suite and job["stem"] == stem and job["status"] == "running":
+            rc = job["proc"].poll()
+            if rc is None:
+                return job
+            # process exited but never reaped (client poller died) — reap it
+            job["exit_code"] = rc
+            job["status"] = "done" if rc == 0 else "failed"
+            if "log_file" in job and not job["log_file"].closed:
+                job["log_file"].close()
+    return None
+
 REPORT_ROOT = Path(__file__).parent / "report_run"
 
 
@@ -184,20 +200,11 @@ class ReportHandler(SimpleHTTPRequestHandler):
             self._json(400, {"error": "invalid folder name"})
             return
         stem = m.group(1)
+        suite = Path(air_path).parent.name or "unknown"
         with _jobs_lock:
-            for job in _jobs.values():
-                if job["stem"] == stem and job["status"] == "running":
-                    rc = job["proc"].poll()
-                    if rc is None:
-                        self._json(409, {"error": "already running"})
-                        return
-                    # Process already exited but status was never reaped (e.g. the
-                    # client poller died when the page reloaded). Reap it so it
-                    # doesn't block reruns forever.
-                    job["exit_code"] = rc
-                    job["status"] = "done" if rc == 0 else "failed"
-                    if "log_file" in job and not job["log_file"].closed:
-                        job["log_file"].close()
+            if _find_running_job(suite, stem) is not None:
+                self._json(409, {"error": "already running"})
+                return
             job_id = str(uuid.uuid4())
             log_path = REPORT_ROOT / f"{job_id}.log"
             # Keep file open for the lifetime of the process
@@ -222,6 +229,7 @@ class ReportHandler(SimpleHTTPRequestHandler):
             _jobs[job_id] = {
                 "job_id": job_id,
                 "stem": stem,
+                "suite": suite,
                 "air_path": air_path,
                 "proc": proc,
                 "status": "running",
