@@ -376,3 +376,13 @@ def test_scan_catalog_excludes_pycache(tmp_path):
 def test_scan_catalog_missing_root(tmp_path):
     from aggregate_report import scan_catalog
     assert scan_catalog(tmp_path / "nope") == {}
+
+
+def test_scan_catalog_air_as_directories(tmp_path):
+    from aggregate_report import scan_catalog
+    suite = tmp_path / "HeartSystem"
+    suite.mkdir()
+    air = suite / "tc01_a.air"   # .air is a DIRECTORY (real repo layout)
+    air.mkdir()
+    (air / "tc01_a.py").write_text("def main(): pass\n", encoding="utf-8")
+    assert scan_catalog(tmp_path) == {"HeartSystem": ["tc01_a"]}

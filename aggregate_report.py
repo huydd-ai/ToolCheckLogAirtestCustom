@@ -104,13 +104,12 @@ def scan_runs(report_root: Path) -> list[RunEntry]:
 
 def scan_catalog(test_root: Path) -> dict[str, list[str]]:
     """Map suite folder -> sorted .air stems under test_root/<suite>/. All test cases,
-    run or not. Globbing *.air files skips __pycache__ dirs naturally."""
+    run or not. Matches .air entries (directories in this repo) one level under each suite;
+    __pycache__ excluded by the .air suffix."""
     if not test_root.exists():
         return {}
     catalog: dict[str, list[str]] = {}
     for air in test_root.glob("*/*.air"):
-        if not air.is_file():
-            continue
         catalog.setdefault(air.parent.name, []).append(air.stem)
     for stems in catalog.values():
         stems.sort()
