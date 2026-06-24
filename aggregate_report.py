@@ -372,6 +372,13 @@ li:hover { border-color: var(--border); transform: translateX(4px); }
   font-family: ui-monospace, Consolas, monospace; font-size: 11px; color: var(--text-dim);
   background: var(--bg); border: 1px solid var(--border); border-radius: 4px; padding: 2px 8px; white-space: nowrap;
 }
+.tabs { display: flex; gap: 8px; margin-bottom: 20px; }
+.tab-btn { background: var(--bg); border: 1px solid var(--border); color: var(--text-dim); padding: 8px 18px; border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: 600; }
+.tab-btn.active { color: var(--text-main); border-color: var(--accent); }
+.tab-pane { display: none; }
+.tab-pane.active { display: block; }
+.suite-summary { font-weight: 700; }
+.suite-content { padding-left: 8px; }
 """.strip()
 
 _JS = """
@@ -617,6 +624,49 @@ function applyDashboardFilters() {
     });
   });
 })();
+
+function showTab(name) {
+  document.querySelectorAll('.tab-pane').forEach(function(p){ p.classList.remove('active'); });
+  document.querySelectorAll('.tab-btn').forEach(function(b){ b.classList.remove('active'); });
+  var pane = document.getElementById('tab-' + name);
+  if (pane) pane.classList.add('active');
+  var btn = document.querySelector('.tab-btn[data-tab="' + name + '"]');
+  if (btn) btn.classList.add('active');
+}
+
+async function runCatalogTest(btn, key, airPath) {
+  btn.disabled = true;
+  var orig = btn.textContent;
+  btn.textContent = '…';
+  var statusEl = document.getElementById('cat-status-' + key);
+  var termBtn = document.getElementById('cat-term-' + key);
+  var preEl = document.getElementById('pre-' + key);
+  var logsContainer = document.getElementById('logs-' + key);
+  if (statusEl) statusEl.textContent = 'Starting…';
+  try {
+    var r = await fetch('/run', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({air_path: airPath})
+    });
+    var data = await r.json();
+    if (!r.ok) {
+      btn.disabled = false; btn.textContent = orig;
+      if (statusEl) statusEl.textContent = data.error || 'Error';
+      return;
+    }
+    if (statusEl) statusEl.textContent = 'Running…';
+    if (termBtn) { termBtn.style.display = 'inline-block'; termBtn.disabled = false; termBtn.setAttribute('data-job-id', data.job_id); }
+    if (preEl) preEl.textContent = 'Waiting for logs...\\n';
+    if (logsContainer) logsContainer.style.display = 'flex';
+    _runOffsets[data.job_id] = 0;
+    _rerunActive = true;
+    pollRerunStatus(btn, key, data.job_id, statusEl, termBtn, null, preEl, logsContainer);
+  } catch (err) {
+    btn.disabled = false; btn.textContent = orig;
+    if (statusEl) statusEl.textContent = 'Server offline';
+  }
+}
 """
 
 def _count_statuses(rows: list[RunEntry]) -> str:
@@ -677,7 +727,47 @@ def _append_date_group(html: list[str], date_str: str, rows: list[RunEntry], tod
     html.append('</ul></div></details>')
 
 
-def render_html(suite_groups: list[tuple[str, list[tuple[str, list[RunEntry]]]]]) -> str:
+def _append_catalog(html: list[str], catalog: list[tuple[str, list[dict]]]) -> None:
+    if not catalog:
+        html.append('<p class="empty-state">No test root found (../Test missing).</p>')
+        return
+    idx = 0
+    for suite, tests in catalog:
+        html.append('<details open class="suite-group">')
+        html.append(f'<summary class="suite-summary"><span>{escape(suite)}</span> &mdash; {len(tests)} tests</summary>')
+        html.append('<div class="group-content"><ul>')
+        for t in tests:
+            key = f"cat{idx}"
+            idx += 1
+            stem = escape(t["stem"])
+            air = escape(t["air_path"], quote=True)
+            status = t["last_status"]
+            status_cls = status.lower() if status in {"PASS", "FAIL", "SKIP"} else "unknown"
+            badge = escape(status) if status else "never run"
+            html.append('<li class="run-item">')
+            html.append('<div class="run-main">')
+            html.append(f'<span class="badge {status_cls}">{badge}</span>')
+            if t["last_href"]:
+                href = escape(t["last_href"], quote=True)
+                html.append(f'<a class="run-name" href="{href}" onclick="openReport(event, \'{href}\', \'{stem}\')">{stem}</a>')
+            else:
+                html.append(f'<span class="run-name">{stem}</span>')
+            html.append('</div>')
+            html.append('<div class="run-meta">')
+            html.append(f'<button class="rerun-btn" onclick="runCatalogTest(this, \'{key}\', \'{air}\')" title="Run this test">▶ Run</button>')
+            html.append(f'<button class="terminate-btn" id="cat-term-{key}" data-folder="{key}" onclick="terminateTest(this, \'{key}\')" style="display:none">⏹ Terminate</button>')
+            html.append(f'<button class="logs-btn" onclick="toggleLogs(\'{key}\')" title="Toggle CLI Logs">📄 Logs</button>')
+            html.append(f'<span class="rerun-status" id="cat-status-{key}"></span>')
+            html.append('</div>')
+            html.append('</li>')
+            html.append(f'<li class="run-logs-container" id="logs-{key}"><pre id="pre-{key}"></pre></li>')
+        html.append('</ul></div></details>')
+
+
+def render_html(
+    suite_groups: list[tuple[str, list[tuple[str, list[RunEntry]]]]],
+    catalog: list[tuple[str, list[dict]]] | None = None,
+) -> str:
     today_str = date.today().strftime("%Y-%m-%d")
     html = [
         "<!DOCTYPE html>",
@@ -691,9 +781,14 @@ def render_html(suite_groups: list[tuple[str, list[tuple[str, list[RunEntry]]]]]
         '<body>',
         '<div class="container">',
         '<h1>Dagster Test Reports</h1>',
-        '<div id="banner" style="display:none; background:rgba(239,68,68,0.15); border:1px solid var(--fail); color:var(--fail); padding:12px; border-radius:8px; margin-bottom:16px; font-size:14px;"></div>'
+        '<div id="banner" style="display:none; background:rgba(239,68,68,0.15); border:1px solid var(--fail); color:var(--fail); padding:12px; border-radius:8px; margin-bottom:16px; font-size:14px;"></div>',
+        '<div class="tabs">',
+        '<button class="tab-btn active" data-tab="report" onclick="showTab(\'report\')">Report</button>',
+        '<button class="tab-btn" data-tab="catalog" onclick="showTab(\'catalog\')">Test Catalog</button>',
+        '</div>',
+        '<div id="tab-report" class="tab-pane active">',
     ]
-    
+
     if not suite_groups:
         html.append('<p class="empty-state">No test runs found. Generate some reports to see them here!</p>')
     else:
@@ -742,8 +837,13 @@ def render_html(suite_groups: list[tuple[str, list[tuple[str, list[RunEntry]]]]]
                 _append_date_group(html, date_str, rows, today_str)
             html.append('</div></details>')
 
+    html.append('</div>')  # end tab-report
+    html.append('<div id="tab-catalog" class="tab-pane">')
+    _append_catalog(html, catalog or [])
+    html.append('</div>')  # end tab-catalog
+
     html.append('</div>') # end container
-    
+
     # Modal HTML
     html.append('<div id="modal"><div id="modal-bg"></div><div id="modal-panel">')
     html.append('<div id="modal-bar"><div id="modal-title"></div><button id="modal-close">x</button></div>')

@@ -431,3 +431,31 @@ def test_build_catalog_matches_on_suite_and_stem(tmp_path):
     heart = {t["stem"]: t for t in cat["HeartSystem"]}
     assert heart["tc01_x"]["last_status"] == "PASS"
     assert daily["tc01_x"]["last_status"] is None  # not the HeartSystem run
+
+
+def test_render_html_has_tab_bar():
+    html = render_html([], catalog=[])
+    assert 'data-tab="report"' in html
+    assert 'data-tab="catalog"' in html
+    assert "function showTab(" in html
+
+
+def test_render_html_catalog_lists_tests_with_run_button():
+    catalog = [("HeartSystem", [
+        {"stem": "tc01_a", "air_path": "Test/HeartSystem/tc01_a.air", "last_status": "PASS",
+         "last_href": "tc01_a_20260612_110000/report.html"},
+        {"stem": "tc02_b", "air_path": "Test/HeartSystem/tc02_b.air", "last_status": None, "last_href": None},
+    ])]
+    html = render_html([], catalog=catalog)
+    assert ">HeartSystem<" in html
+    assert "tc01_a" in html
+    assert "runCatalogTest(this, 'cat0', 'Test/HeartSystem/tc01_a.air')" in html
+    assert "never run" in html        # tc02_b badge
+    assert "function runCatalogTest(" in html
+
+
+def test_render_html_catalog_escapes_paths():
+    catalog = [("S", [{"stem": "t<x>", "air_path": "Test/S/t<x>.air", "last_status": None, "last_href": None}])]
+    html = render_html([], catalog=catalog)
+    assert "t<x>" not in html
+    assert "&lt;x&gt;" in html
