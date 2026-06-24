@@ -281,3 +281,33 @@ def test_render_html_delete_button_uses_folder_name():
     html = render_html(group_by_date(entries))
     folder = "tc02_bar_20260612_110000"
     assert f"deleteRun(event, '{folder}')" in html
+
+
+def test_extract_suite_from_air_path(tmp_path):
+    from aggregate_report import extract_suite
+    log = tmp_path / "log.txt"
+    log.write_text("AIR_PATH=/x/Test/HeartSystem/tc01.air\n# Status: PASS\n", encoding="utf-8")
+    assert extract_suite(log) == "HeartSystem"
+
+
+def test_extract_suite_missing_air_path(tmp_path):
+    from aggregate_report import extract_suite
+    log = tmp_path / "log.txt"
+    log.write_text("# Status: PASS\n", encoding="utf-8")
+    assert extract_suite(log) == "unknown"
+
+
+def test_scan_runs_populates_suite(tmp_path):
+    d = tmp_path / "tc01_foo_20260612_102041"
+    d.mkdir()
+    (d / "log.txt").write_text(
+        "AIR_PATH=/x/Test/HeartSystem/tc01_foo.air\n# Status: PASS\n", encoding="utf-8"
+    )
+    entries = scan_runs(tmp_path)
+    assert entries[0].suite == "HeartSystem"
+
+
+def test_scan_runs_suite_unknown_when_no_air_path(tmp_path):
+    _make_run(tmp_path, "tc01_foo_20260612_102041", "# Status: PASS")  # helper writes no AIR_PATH
+    entries = scan_runs(tmp_path)
+    assert entries[0].suite == "unknown"

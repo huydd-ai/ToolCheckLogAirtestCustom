@@ -16,6 +16,7 @@ except ModuleNotFoundError:
 _FOLDER_RE = re.compile(r"^(.+)_(\d{8})_(\d{6})$")
 _STATUS_RE = re.compile(r"^#\s*Status:\s*(PASS|FAIL|SKIP)\b", re.MULTILINE)
 _DEVICE_RE = re.compile(r"^DEVICE=(.+)$", re.MULTILINE)
+_AIR_PATH_RE = re.compile(r"^AIR_PATH=(.+)$", re.MULTILINE)
 
 def parse_run_folder_name(name: str) -> tuple[str, datetime] | None:
     m = _FOLDER_RE.match(name)
@@ -49,6 +50,18 @@ def extract_device(log_path: Path) -> str:
     m = _DEVICE_RE.search(head)
     return m.group(1).strip() if m else "unknown"
 
+def extract_suite(log_path: Path) -> str:
+    """Suite = parent dir name of AIR_PATH in log.txt head. 'unknown' if absent."""
+    try:
+        with log_path.open("r", encoding="utf-8", errors="replace") as f:
+            head = f.read(1024)
+    except OSError:
+        return "unknown"
+    m = _AIR_PATH_RE.search(head)
+    if not m:
+        return "unknown"
+    return Path(m.group(1).strip()).parent.name or "unknown"
+
 @dataclass(frozen=True)
 class RunEntry:
     stem: str
@@ -57,6 +70,7 @@ class RunEntry:
     folder: str
     report_href: str
     device: str = "unknown"
+    suite: str = "unknown"
 
 def scan_runs(report_root: Path) -> list[RunEntry]:
     if not report_root.exists():
@@ -74,6 +88,7 @@ def scan_runs(report_root: Path) -> list[RunEntry]:
         stem, when = parsed
         status = extract_status(log_path)
         device = extract_device(log_path)
+        suite = extract_suite(log_path)
         entries.append(
             RunEntry(
                 stem=stem,
@@ -82,6 +97,7 @@ def scan_runs(report_root: Path) -> list[RunEntry]:
                 folder=child.name,
                 report_href=f"{child.name}/report.html",
                 device=device,
+                suite=suite,
             )
         )
     return entries
