@@ -386,3 +386,37 @@ def test_scan_catalog_air_as_directories(tmp_path):
     air.mkdir()
     (air / "tc01_a.py").write_text("def main(): pass\n", encoding="utf-8")
     assert scan_catalog(tmp_path) == {"HeartSystem": ["tc01_a"]}
+
+
+def test_build_catalog_joins_last_run(tmp_path):
+    from aggregate_report import build_catalog
+    (tmp_path / "HeartSystem").mkdir()
+    (tmp_path / "HeartSystem" / "tc01_a.air").write_text("", encoding="utf-8")
+    (tmp_path / "HeartSystem" / "tc02_b.air").write_text("", encoding="utf-8")
+    entries = [
+        _entry_s("tc01_a", "2026-06-12 09:00:00", "FAIL", "HeartSystem"),
+        _entry_s("tc01_a", "2026-06-12 11:00:00", "PASS", "HeartSystem"),  # newer wins
+    ]
+    cat = build_catalog(tmp_path, entries)
+    suite, tests = cat[0]
+    assert suite == "HeartSystem"
+    by_stem = {t["stem"]: t for t in tests}
+    assert by_stem["tc01_a"]["last_status"] == "PASS"
+    assert by_stem["tc01_a"]["last_href"] == "tc01_a_20260612_110000/report.html"
+    assert by_stem["tc01_a"]["air_path"] == "Test/HeartSystem/tc01_a.air"
+    assert by_stem["tc02_b"]["last_status"] is None   # never run
+    assert by_stem["tc02_b"]["last_href"] is None
+
+
+def test_build_catalog_matches_on_suite_and_stem(tmp_path):
+    # Same stem in two suites must not cross-contaminate.
+    from aggregate_report import build_catalog
+    for s in ("HeartSystem", "DailyMission"):
+        (tmp_path / s).mkdir()
+        (tmp_path / s / "tc01_x.air").write_text("", encoding="utf-8")
+    entries = [_entry_s("tc01_x", "2026-06-12 10:00:00", "PASS", "HeartSystem")]
+    cat = dict(build_catalog(tmp_path, entries))
+    daily = {t["stem"]: t for t in cat["DailyMission"]}
+    heart = {t["stem"]: t for t in cat["HeartSystem"]}
+    assert heart["tc01_x"]["last_status"] == "PASS"
+    assert daily["tc01_x"]["last_status"] is None  # not the HeartSystem run

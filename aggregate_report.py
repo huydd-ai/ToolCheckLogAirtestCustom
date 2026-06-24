@@ -115,6 +115,30 @@ def scan_catalog(test_root: Path) -> dict[str, list[str]]:
         stems.sort()
     return dict(sorted(catalog.items()))
 
+def build_catalog(
+    test_root: Path, entries: list[RunEntry]
+) -> list[tuple[str, list[dict]]]:
+    """Join scan_catalog() with run history on (suite, stem). Each test gets its
+    newest run's status + report href (or None if never run)."""
+    newest: dict[tuple[str, str], RunEntry] = {}
+    for e in entries:
+        key = (e.suite, e.stem)
+        if key not in newest or e.when > newest[key].when:
+            newest[key] = e
+    out: list[tuple[str, list[dict]]] = []
+    for suite, stems in scan_catalog(test_root).items():
+        tests = []
+        for stem in stems:
+            run = newest.get((suite, stem))
+            tests.append({
+                "stem": stem,
+                "air_path": f"Test/{suite}/{stem}.air",
+                "last_status": run.status if run else None,
+                "last_href": run.report_href if run else None,
+            })
+        out.append((suite, tests))
+    return out
+
 def group_by_date(entries: list[RunEntry]) -> list[tuple[str, list[RunEntry]]]:
     by_date: dict[str, list[RunEntry]] = {}
     for e in entries:
