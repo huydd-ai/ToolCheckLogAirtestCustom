@@ -55,7 +55,7 @@ Output lands in `report_run/<test_stem>_<timestamp>/`:
 
 ### Global Dashboard
 
-You can view a centralized dashboard of all test runs across all dates. It provides a rich UI with pass/fail summary metrics, name search and status filters, per-run reports in a modal, rerun, and mass-delete of old reports.
+You can view a centralized dashboard of all test runs across all dates. It provides a rich UI with pass/fail summary metrics, name search and status filters, per-run reports in a modal, rerun, and mass-delete of old reports. Long test names and verbose error messages gracefully word-wrap to prevent UI overflow.
 
 ```powershell
 # Start the local server

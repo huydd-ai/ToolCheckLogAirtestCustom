@@ -223,7 +223,7 @@ li {
   transition: all 0.2s;
 }
 li:hover { border-color: var(--border); transform: translateX(4px); }
-.run-main { display: flex; align-items: center; gap: 16px; }
+.run-main { display: flex; align-items: center; gap: 16px; flex: 1; min-width: 0; }
 .badge { 
   padding: 4px 12px; 
   border-radius: 20px; 
@@ -237,7 +237,7 @@ li:hover { border-color: var(--border); transform: translateX(4px); }
 .badge.pass { background: rgba(16, 185, 129, 0.15); color: var(--pass); border: 1px solid rgba(16,185,129,0.3); }
 .badge.fail { background: rgba(239, 68, 68, 0.15); color: var(--fail); border: 1px solid rgba(239,68,68,0.3); }
 .badge.skip { background: rgba(100, 116, 139, 0.15); color: var(--skip); border: 1px solid rgba(100,116,139,0.3); }
-.run-name { color: var(--text-main); font-weight: 500; text-decoration: none; transition: color 0.2s; }
+.run-name { color: var(--text-main); font-weight: 500; text-decoration: none; transition: color 0.2s; word-break: break-word; white-space: pre-wrap; display: block; }
 .run-name:hover { color: var(--accent); }
 .run-meta { display: flex; align-items: center; gap: 16px; }
 .run-time { color: var(--text-dim); font-size: 13px; font-variant-numeric: tabular-nums; }

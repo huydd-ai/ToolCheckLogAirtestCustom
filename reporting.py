@@ -179,7 +179,7 @@ tr.pass:hover{background:var(--bg-item)}
 .status-badge.pass{background:rgba(16,185,129,.15);color:var(--pass);border:1px solid rgba(16,185,129,.3)}
 .status-badge.fail{background:rgba(239,68,68,.15);color:var(--fail);border:1px solid rgba(239,68,68,.3)}
 td .screenshot{max-width:72px;max-height:54px;border-radius:4px;border:1px solid var(--border);cursor:pointer;vertical-align:middle}
-td .error-text{color:var(--fail);font-size:12px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer}
+td .error-text{color:var(--fail);font-size:12px;max-width:400px;white-space:pre-wrap;word-break:break-word;cursor:pointer}
 .no-runs{text-align:center;padding:40px;color:var(--text-dim);font-style:italic}
 .error-panel{background:var(--bg-card);border-top:1px solid var(--border);border-bottom:1px solid var(--border);padding:20px 32px}
 .error-panel h2{font-size:14px;color:var(--fail);text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px}
