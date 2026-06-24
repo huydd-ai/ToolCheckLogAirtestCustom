@@ -260,13 +260,12 @@ Add after `scan_runs` in `aggregate_report.py`:
 ```python
 def scan_catalog(test_root: Path) -> dict[str, list[str]]:
     """Map suite folder -> sorted .air stems under test_root/<suite>/. All test cases,
-    run or not. Globbing *.air files skips __pycache__ dirs naturally."""
+    run or not. .air entries are DIRECTORIES in this repo; the glob matches them one
+    level under each suite, and __pycache__ is excluded by the .air suffix."""
     if not test_root.exists():
         return {}
     catalog: dict[str, list[str]] = {}
     for air in test_root.glob("*/*.air"):
-        if not air.is_file():
-            continue
         catalog.setdefault(air.parent.name, []).append(air.stem)
     for stems in catalog.values():
         stems.sort()
