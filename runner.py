@@ -47,12 +47,11 @@ def run_single_test(air_path: Path, py_script: Path, mode: str, device_id: str, 
     error_top = None
     status = "PASS"
 
-    sys.path.insert(0, str(air_path))
     try:
-        sys.modules.pop(module_name, None)
-        mod = importlib.import_module(module_name)
-        if hasattr(mod, "main"):
-            mod.main()
+        import runpy
+        mod = runpy.run_path(str(py_script))
+        if "main" in mod:
+            mod["main"]()
             print(f"[PASS] {module_name}")
         else:
             status = "SKIP"
@@ -74,7 +73,6 @@ def run_single_test(air_path: Path, py_script: Path, mode: str, device_id: str, 
             annotator.finalize(status, annotated_path)
         except Exception as e:
             print(f"[WARN] Failed to create step highlights video: {e}", file=sys.stderr)
-        sys.path.remove(str(air_path))
 
         try:
             G.LOGGER.set_logfile(None)

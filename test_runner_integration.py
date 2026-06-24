@@ -24,17 +24,14 @@ def main():
     report_root = tmp_path / "reports"
     report_root.mkdir()
     
-    # Run the test
-    with patch("dagster.runner.auto_setup"), patch("dagster.runner.G"), patch("dagster.runner.importlib.import_module") as mock_import:
-        mock_mod = MagicMock()
+    with patch("dagster.runner.auto_setup"), patch("dagster.runner.G"), patch("runpy.run_path") as mock_run_path:
         def mock_main():
             import logging
             logger = logging.getLogger("pixon.dummy")
             logger.error("simulated logged error")
-        mock_mod.main = mock_main
-        mock_import.return_value = mock_mod
+        mock_run_path.return_value = {"main": mock_main}
         
-        failed = run_single_test(air_dir, "tester", "dummy_device", report_root, "dummy_scrcpy")
+        failed = run_single_test(air_dir, dummy_py, "tester", "dummy_device", report_root)
         
     assert failed is True
 
@@ -48,23 +45,22 @@ def main():
 def test_synthetic_step_appended_for_logged_error(tmp_path):
     air_dir = tmp_path / "dummy2.air"
     air_dir.mkdir()
-    (air_dir / "dummy2.py").touch()
+    dummy2_py = air_dir / "dummy2.py"
+    dummy2_py.touch()
     
     attach_error_handler("pixon")
     
     report_root = tmp_path / "reports"
     report_root.mkdir()
     
-    with patch("dagster.runner.auto_setup"), patch("dagster.runner.G"), patch("dagster.runner.importlib.import_module") as mock_import:
-        mock_mod = MagicMock()
+    with patch("dagster.runner.auto_setup"), patch("dagster.runner.G"), patch("runpy.run_path") as mock_run_path:
         def mock_main():
             import logging
             logger = logging.getLogger("pixon.dummy2")
             logger.error("another error")
-        mock_mod.main = mock_main
-        mock_import.return_value = mock_mod
+        mock_run_path.return_value = {"main": mock_main}
         
-        run_single_test(air_dir, "tester", "dummy_device", report_root, "dummy_scrcpy")
+        run_single_test(air_dir, dummy2_py, "tester", "dummy_device", report_root)
         
     out_dir = list(report_root.glob("dummy2_*"))[0]
     log_txt = out_dir / "log.txt"
@@ -78,15 +74,15 @@ def test_synthetic_step_appended_for_logged_error(tmp_path):
 def test_dedup_skips_synthetic_when_step_already_captured(tmp_path):
     air_dir = tmp_path / "dummy3.air"
     air_dir.mkdir()
-    (air_dir / "dummy3.py").touch()
+    dummy3_py = air_dir / "dummy3.py"
+    dummy3_py.touch()
     
     attach_error_handler("pixon")
     
     report_root = tmp_path / "reports"
     report_root.mkdir()
     
-    with patch("dagster.runner.auto_setup"), patch("dagster.runner.G"), patch("dagster.runner.importlib.import_module") as mock_import:
-        mock_mod = MagicMock()
+    with patch("dagster.runner.auto_setup"), patch("dagster.runner.G"), patch("runpy.run_path") as mock_run_path:
         def mock_main():
             from dagster.step_capture import _steps
             # simulate an already captured step from run_step
@@ -102,10 +98,9 @@ def test_dedup_skips_synthetic_when_step_already_captured(tmp_path):
             import logging
             logger = logging.getLogger("pixon.dummy3")
             logger.error("dedup error")
-        mock_mod.main = mock_main
-        mock_import.return_value = mock_mod
+        mock_run_path.return_value = {"main": mock_main}
         
-        run_single_test(air_dir, "tester", "dummy_device", report_root, "dummy_scrcpy")
+        run_single_test(air_dir, dummy3_py, "tester", "dummy_device", report_root)
         
     steps = get_steps()
     # Should only be one step with behaviour 'dedup error'

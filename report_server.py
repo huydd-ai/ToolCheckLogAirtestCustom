@@ -34,12 +34,11 @@ from dagster.aggregate_report import regenerate_global_report
 def extract_air_path(log_path: Path) -> str | None:
     """Read AIR_PATH= from first line of log.txt. Returns None if absent or unreadable."""
     try:
-        with log_path.open("r", encoding="utf-8", errors="replace") as f:
-            first_line = f.readline().rstrip("\n")
-    except OSError:
-        return None
-    if first_line.startswith("AIR_PATH="):
-        return first_line[len("AIR_PATH="):]
+        first_line = log_path.read_text(encoding="utf-8", errors="replace").splitlines()[0]
+        if first_line.startswith("AIR_PATH="):
+            return first_line.removeprefix("AIR_PATH=")
+    except (OSError, IndexError):
+        pass
     return None
 
 
