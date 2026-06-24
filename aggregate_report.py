@@ -640,7 +640,44 @@ def _device_summary(rows: list[RunEntry]) -> list[dict]:
     return sorted(by_dev.values(), key=lambda d: d["last"], reverse=True)
 
 
-def render_html(groups: list[tuple[str, list[RunEntry]]]) -> str:
+def _append_date_group(html: list[str], date_str: str, rows: list[RunEntry], today_str: str) -> None:
+    open_attr = " open" if date_str == today_str else ""
+    summary = f"{escape(date_str)} &mdash; {escape(_count_statuses(rows))}"
+    html.append(f'<details{open_attr}>')
+    html.append('<summary>')
+    html.append(f'<div class="summary-left"><span>{summary}</span></div>')
+    html.append(f'<button class="delete-all-btn" onclick="deleteAllRuns(this, \'{escape(date_str)}\')">Delete All</button>')
+    html.append('</summary>')
+    html.append('<div class="group-content"><ul>')
+    for r in rows:
+        status_cls = r.status.lower() if r.status in {"PASS", "FAIL", "SKIP"} else "unknown"
+        href = escape(r.report_href, quote=True)
+        stem = escape(r.stem)
+        folder = escape(r.folder)
+        time_str = r.when.strftime("%H:%M:%S")
+        dev_id = escape(r.device, quote=True)
+        html.append(f'<li class="run-item" data-status="{status_cls}" data-name="{escape(r.stem.lower(), quote=True)}" data-device="{dev_id}">')
+        html.append('<div class="run-main">')
+        html.append(f'<span class="badge {status_cls}">{escape(r.status)}</span>')
+        html.append(f'<a class="run-name" href="{href}" onclick="openReport(event, \'{href}\', \'{stem}\')">{stem}</a>')
+        html.append('</div>')
+        html.append('<div class="run-meta">')
+        html.append(f'<span class="dev-tag" title="Device">&#128241; {escape(r.device)}</span>')
+        html.append(f'<span class="run-time">{time_str}</span>')
+        html.append(f'<button class="rerun-btn" data-folder="{folder}" onclick="rerunTest(this, \'{folder}\')" title="Rerun this test">↺ Rerun</button>')
+        html.append(f'<button class="terminate-btn" data-folder="{folder}" onclick="terminateTest(this, \'{folder}\')" title="Terminate this test">⏹ Terminate</button>')
+        html.append(f'<button class="logs-btn" data-folder="{folder}" onclick="toggleLogs(\'{folder}\')" title="Toggle CLI Logs">📄 Logs</button>')
+        html.append(f'<span class="rerun-status" data-folder="{folder}"></span>')
+        html.append(f'<button class="delete-btn" title="Delete Report" onclick="deleteRun(event, \'{folder}\')">')
+        html.append('<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path></svg>')
+        html.append('</button>')
+        html.append('</div>')
+        html.append('</li>')
+        html.append(f'<li class="run-logs-container" id="logs-{folder}"><pre id="pre-{folder}"></pre></li>')
+    html.append('</ul></div></details>')
+
+
+def render_html(suite_groups: list[tuple[str, list[tuple[str, list[RunEntry]]]]]) -> str:
     today_str = date.today().strftime("%Y-%m-%d")
     html = [
         "<!DOCTYPE html>",
@@ -657,10 +694,10 @@ def render_html(groups: list[tuple[str, list[RunEntry]]]) -> str:
         '<div id="banner" style="display:none; background:rgba(239,68,68,0.15); border:1px solid var(--fail); color:var(--fail); padding:12px; border-radius:8px; margin-bottom:16px; font-size:14px;"></div>'
     ]
     
-    if not groups:
+    if not suite_groups:
         html.append('<p class="empty-state">No test runs found. Generate some reports to see them here!</p>')
     else:
-        all_rows = [r for _, rows in groups for r in rows]
+        all_rows = [r for _, dgs in suite_groups for _, rows in dgs for r in rows]
         n_pass = sum(1 for r in all_rows if r.status == "PASS")
         n_fail = sum(1 for r in all_rows if r.status == "FAIL")
         denom = n_pass + n_fail
@@ -697,45 +734,14 @@ def render_html(groups: list[tuple[str, list[RunEntry]]]) -> str:
         html.append('<button class="filter-pill" data-status="skip">Skip</button>')
         html.append('</div>')
 
-        for date_str, rows in groups:
-            open_attr = " open" if date_str == today_str else ""
-            summary = f"{escape(date_str)} &mdash; {escape(_count_statuses(rows))}"
-            html.append(f'<details{open_attr}>')
-            html.append('<summary>')
-            html.append(f'<div class="summary-left"><span>{summary}</span></div>')
-            html.append(f'<button class="delete-all-btn" onclick="deleteAllRuns(this, \'{escape(date_str)}\')">Delete All</button>')
-            html.append('</summary>')
-            html.append('<div class="group-content"><ul>')
-            
-            for r in rows:
-                status_cls = r.status.lower() if r.status in {"PASS", "FAIL", "SKIP"} else "unknown"
-                href = escape(r.report_href, quote=True)
-                stem = escape(r.stem)
-                folder = escape(r.folder)
-                time_str = r.when.strftime("%H:%M:%S")
-                
-                dev_id = escape(r.device, quote=True)
-                html.append(f'<li class="run-item" data-status="{status_cls}" data-name="{escape(r.stem.lower(), quote=True)}" data-device="{dev_id}">')
-                html.append('<div class="run-main">')
-                html.append(f'<span class="badge {status_cls}">{escape(r.status)}</span>')
-                html.append(f'<a class="run-name" href="{href}" onclick="openReport(event, \'{href}\', \'{stem}\')">{stem}</a>')
-                html.append('</div>')
-                html.append('<div class="run-meta">')
-                html.append(f'<span class="dev-tag" title="Device">&#128241; {escape(r.device)}</span>')
-                html.append(f'<span class="run-time">{time_str}</span>')
-                html.append(f'<button class="rerun-btn" data-folder="{folder}" onclick="rerunTest(this, \'{folder}\')" title="Rerun this test">↺ Rerun</button>')
-                html.append(f'<button class="terminate-btn" data-folder="{folder}" onclick="terminateTest(this, \'{folder}\')" title="Terminate this test">⏹ Terminate</button>')
-                html.append(f'<button class="logs-btn" data-folder="{folder}" onclick="toggleLogs(\'{folder}\')" title="Toggle CLI Logs">📄 Logs</button>')
-                html.append(f'<span class="rerun-status" data-folder="{folder}"></span>')
-                html.append(f'<button class="delete-btn" title="Delete Report" onclick="deleteRun(event, \'{folder}\')">')
-                html.append('<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path></svg>')
-                html.append('</button>')
-                html.append('</div>')
-                html.append('</li>')
-                html.append(f'<li class="run-logs-container" id="logs-{folder}"><pre id="pre-{folder}"></pre></li>')
-                
-            html.append('</ul></div></details>')
-            
+        for suite, date_groups in suite_groups:
+            html.append('<details open class="suite-group">')
+            html.append(f'<summary class="suite-summary"><span>{escape(suite)}</span></summary>')
+            html.append('<div class="suite-content">')
+            for date_str, rows in date_groups:
+                _append_date_group(html, date_str, rows, today_str)
+            html.append('</div></details>')
+
     html.append('</div>') # end container
     
     # Modal HTML
@@ -750,7 +756,7 @@ def render_html(groups: list[tuple[str, list[RunEntry]]]) -> str:
 def regenerate_global_report(report_root: Path) -> Path:
     report_root.mkdir(parents=True, exist_ok=True)
     entries = scan_runs(report_root)
-    groups = group_by_date(entries)
+    groups = group_by_suite_then_date(entries)
     html = render_html(groups)
     out = report_root / "report.html"
     out.write_text(html, encoding="utf-8")

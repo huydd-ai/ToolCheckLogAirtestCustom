@@ -7,6 +7,7 @@ from aggregate_report import (
     RunEntry,
     scan_runs,
     group_by_date,
+    group_by_suite_then_date,
     render_html,
     regenerate_global_report,
 )
@@ -166,7 +167,7 @@ def test_render_html_group_header_has_counts():
         _entry("b", "2026-06-12 11:00:00", "FAIL"),
         _entry("c", "2026-06-12 09:00:00", "PASS"),
     ]
-    html = render_html(group_by_date(entries))
+    html = render_html(group_by_suite_then_date(entries))
     assert "2026-06-12" in html
     assert "2 PASS" in html
     assert "1 FAIL" in html
@@ -176,7 +177,7 @@ def test_render_html_today_open_past_collapsed():
     today = datetime.now().strftime("%Y-%m-%d")
     yesterday_entries = [_entry("a", "2020-01-01 10:00:00", "PASS")]
     today_entries = [_entry("b", datetime.now().strftime("%Y-%m-%d 10:00:00"), "PASS")]
-    html = render_html(group_by_date(today_entries + yesterday_entries))
+    html = render_html(group_by_suite_then_date(today_entries + yesterday_entries))
     assert "<details open>" in html   # today expanded
     assert "<details>" in html        # past day collapsed
     assert today in html
@@ -184,7 +185,7 @@ def test_render_html_today_open_past_collapsed():
 
 def test_render_html_row_links_to_report():
     entries = [_entry("tc01_foo", "2026-06-12 10:20:41", "PASS")]
-    html = render_html(group_by_date(entries))
+    html = render_html(group_by_suite_then_date(entries))
     assert 'href="tc01_foo_20260612_102041/report.html"' in html
     assert "tc01_foo" in html
 
@@ -195,7 +196,7 @@ def test_render_html_status_badge_classes():
         _entry("b", "2026-06-12 11:00:00", "FAIL"),
         _entry("c", "2026-06-12 09:00:00", "SKIP"),
     ]
-    html = render_html(group_by_date(entries))
+    html = render_html(group_by_suite_then_date(entries))
     assert 'class="badge pass">PASS<' in html
     assert 'class="badge fail">FAIL<' in html
     assert 'class="badge skip">SKIP<' in html
@@ -203,7 +204,7 @@ def test_render_html_status_badge_classes():
 
 def test_render_html_escapes_stem():
     entries = [_entry("tc01_<script>", "2026-06-12 10:00:00", "PASS")]
-    html = render_html(group_by_date(entries))
+    html = render_html(group_by_suite_then_date(entries))
     assert "tc01_<script>" not in html
     assert "&lt;script&gt;" in html
 
@@ -214,14 +215,14 @@ def test_render_html_summary_bar_metrics():
         _entry("b", "2026-06-12 11:00:00", "FAIL"),
         _entry("c", "2026-06-12 09:00:00", "PASS"),
     ]
-    html = render_html(group_by_date(entries))
+    html = render_html(group_by_suite_then_date(entries))
     assert 'class="summary-bar"' in html
     assert "Pass rate" in html
     assert "67%" in html  # round(100 * 2 / 3)
 
 
 def test_render_html_filter_controls():
-    html = render_html(group_by_date([_entry("a", "2026-06-12 10:00:00", "PASS")]))
+    html = render_html(group_by_suite_then_date([_entry("a", "2026-06-12 10:00:00", "PASS")]))
     assert 'id="dash-search"' in html
     assert 'class="filter-pill active" data-status="all"' in html
     assert 'data-status="pass"' in html
@@ -229,7 +230,7 @@ def test_render_html_filter_controls():
 
 def test_render_html_run_item_filter_attrs():
     entries = [_entry("tc01_foo", "2026-06-12 10:20:41", "PASS")]
-    html = render_html(group_by_date(entries))
+    html = render_html(group_by_suite_then_date(entries))
     assert 'data-name="tc01_foo"' in html
     assert 'class="run-item" data-status="pass"' in html
 
@@ -264,21 +265,21 @@ def test_regenerate_creates_root_if_missing(tmp_path):
 
 def test_render_html_group_has_delete_all_button():
     entries = [_entry("a", "2026-06-12 10:00:00", "PASS")]
-    html = render_html(group_by_date(entries))
+    html = render_html(group_by_suite_then_date(entries))
     assert 'class="delete-all-btn"' in html
     assert "deleteAllRuns(this, '2026-06-12')" in html
 
 
 def test_render_html_row_has_delete_button():
     entries = [_entry("tc01_foo", "2026-06-12 10:20:41", "PASS")]
-    html = render_html(group_by_date(entries))
+    html = render_html(group_by_suite_then_date(entries))
     assert 'class="delete-btn"' in html
     assert "deleteRun(event, 'tc01_foo_20260612_102041')" in html
 
 
 def test_render_html_delete_button_uses_folder_name():
     entries = [_entry("tc02_bar", "2026-06-12 11:00:00", "FAIL")]
-    html = render_html(group_by_date(entries))
+    html = render_html(group_by_suite_then_date(entries))
     folder = "tc02_bar_20260612_110000"
     assert f"deleteRun(event, '{folder}')" in html
 
@@ -345,6 +346,16 @@ def test_group_by_suite_then_date_unknown_sorts_last():
 def test_group_by_suite_then_date_empty():
     from aggregate_report import group_by_suite_then_date
     assert group_by_suite_then_date([]) == []
+
+
+def test_render_html_groups_by_suite():
+    entries = [
+        _entry_s("tc01_a", "2026-06-12 10:00:00", "PASS", "HeartSystem"),
+        _entry_s("tc01_x", "2026-06-12 10:00:00", "FAIL", "DailyMission"),
+    ]
+    html = render_html(group_by_suite_then_date(entries))
+    assert ">HeartSystem<" in html
+    assert ">DailyMission<" in html
 
 
 def test_scan_catalog_lists_air_by_suite(tmp_path):
