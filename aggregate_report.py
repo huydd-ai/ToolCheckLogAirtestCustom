@@ -853,11 +853,14 @@ def render_html(
     html.append('</body></html>')
     return "\n".join(html)
 
-def regenerate_global_report(report_root: Path) -> Path:
+def regenerate_global_report(report_root: Path, test_root: Path | None = None) -> Path:
     report_root.mkdir(parents=True, exist_ok=True)
+    if test_root is None:
+        test_root = Path(__file__).resolve().parent.parent / "Test"
     entries = scan_runs(report_root)
-    groups = group_by_suite_then_date(entries)
-    html = render_html(groups)
+    suite_groups = group_by_suite_then_date(entries)
+    catalog = build_catalog(test_root, entries)
+    html = render_html(suite_groups, catalog=catalog)
     out = report_root / "report.html"
     out.write_text(html, encoding="utf-8")
     return out

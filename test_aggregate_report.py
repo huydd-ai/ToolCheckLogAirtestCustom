@@ -459,3 +459,30 @@ def test_render_html_catalog_escapes_paths():
     html = render_html([], catalog=catalog)
     assert "t<x>" not in html
     assert "&lt;x&gt;" in html
+
+
+def test_regenerate_renders_suite_groups_and_catalog(tmp_path):
+    # report_run with one run
+    run = tmp_path / "report_run"
+    run.mkdir()
+    d = run / "tc01_a_20260612_110000"
+    d.mkdir()
+    (d / "log.txt").write_text(
+        "AIR_PATH=/x/Test/HeartSystem/tc01_a.air\n# Status: PASS\n", encoding="utf-8"
+    )
+    # Test/ root with a never-run case
+    test_root = tmp_path / "Test"
+    (test_root / "HeartSystem").mkdir(parents=True)
+    (test_root / "HeartSystem" / "tc01_a.air").write_text("", encoding="utf-8")
+    (test_root / "HeartSystem" / "tc99_never.air").write_text("", encoding="utf-8")
+    out = regenerate_global_report(run, test_root=test_root)
+    txt = out.read_text(encoding="utf-8")
+    assert ">HeartSystem<" in txt        # suite group in report tab
+    assert "tc99_never" in txt           # never-run case in catalog
+    assert 'data-tab="catalog"' in txt
+
+
+def test_regenerate_default_test_root_no_crash(tmp_path):
+    # No test_root passed -> defaults to ../Test relative to module; must not raise.
+    out = regenerate_global_report(tmp_path)
+    assert out.exists()
