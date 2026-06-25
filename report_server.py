@@ -1,6 +1,7 @@
 """Simple HTTP server for the aggregate test report.
 
-Serves static files from REPORT_ROOT and handles DELETE requests.
+Serves static files from REPORT_ROOT and handles POST actions
+(delete, delete-date, rerun, rerun-terminate, run).
 
 Usage:
     python report_server.py [--port PORT] [--root REPORT_ROOT]
@@ -11,6 +12,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -28,7 +30,7 @@ sys.path.insert(0, str(_project_root))
 PROJECT_ROOT = _project_root
 TEST_ROOT = (_project_root / "Test").resolve()
 
-from dagster.aggregate_report import regenerate_global_report
+from dagster.aggregate_report import parse_run_folder_name, regenerate_global_report
 
 
 def extract_air_path(log_path: Path) -> str | None:
@@ -77,7 +79,42 @@ def _find_running_job(suite: str, stem: str) -> dict | None:
                 job["log_file"].close()
     return None
 
+
+_JOBS_MAX = 100
+
+
+def _prune_jobs() -> None:
+    """Evict oldest finished jobs above _JOBS_MAX, closing their log handle and
+    unlinking the .log file. Caller must hold _jobs_lock.
+    ponytail: simple count cap; running jobs are never evicted."""
+    if len(_jobs) <= _JOBS_MAX:
+        return
+    finished = sorted(
+        (j for j in _jobs.values() if j["status"] != "running"),
+        key=lambda j: j["started"],
+    )
+    for job in finished[: len(_jobs) - _JOBS_MAX]:
+        lf = job.get("log_file")
+        if lf and not lf.closed:
+            lf.close()
+        lp = job.get("log_path")
+        if lp:
+            try:
+                lp.unlink()
+            except OSError:
+                pass
+        _jobs.pop(job["job_id"], None)
+
+
 REPORT_ROOT = Path(__file__).parent / "report_run"
+
+
+def _safe_under_root(folder_name: str) -> Path | None:
+    """Resolve folder_name under REPORT_ROOT, rejecting path traversal.
+    Returns the resolved Path or None if it escapes the root."""
+    root = REPORT_ROOT.resolve()
+    target = (root / folder_name).resolve()
+    return target if (target == root or root in target.parents) else None
 
 
 class ReportHandler(SimpleHTTPRequestHandler):
@@ -101,9 +138,9 @@ class ReportHandler(SimpleHTTPRequestHandler):
 
     def do_POST(self):
         if self.path.startswith("/delete/"):
-            folder_name = self.path.removeprefix("/delete/")
-            target = REPORT_ROOT / folder_name
-            if not target.exists() or not target.is_dir():
+            folder_name = self.path.removeprefix("/delete/").split("?", 1)[0]
+            target = _safe_under_root(folder_name)
+            if target is None or not target.exists() or not target.is_dir():
                 self.send_response(404)
                 self.send_header("Content-Type", "application/json")
                 self.end_headers()
@@ -190,7 +227,6 @@ class ReportHandler(SimpleHTTPRequestHandler):
             log_path = REPORT_ROOT / f"{job_id}.log"
             log_file = log_path.open("w", encoding="utf-8")
             dagster_run = Path(__file__).parent / "dagster_run.py"
-            import os
             env = os.environ.copy()
             env["PYTHONIOENCODING"] = "utf-8"
             try:
@@ -208,6 +244,7 @@ class ReportHandler(SimpleHTTPRequestHandler):
                 "new_folder": None, "exit_code": None, "started": time.time(),
                 "log_file": log_file, "log_path": log_path,
             }
+            _prune_jobs()
         self._json(200, {"job_id": job_id})
 
     def _handle_rerun_terminate(self, job_id: str) -> None:
@@ -222,8 +259,6 @@ class ReportHandler(SimpleHTTPRequestHandler):
             except OSError:
                 pass
             try:
-                import subprocess
-                import os
                 try:
                     from dotenv import load_dotenv
                     # Load .env from dagster/ directory
@@ -234,16 +269,27 @@ class ReportHandler(SimpleHTTPRequestHandler):
                 subprocess.run(["adb", "shell", "am", "force-stop", pkg], check=False)
             except Exception:
                 pass
+            with _jobs_lock:
+                job["status"] = "failed"
+                job["exit_code"] = job["proc"].poll()
+                lf = job.get("log_file")
+                if lf and not lf.closed:
+                    lf.close()
         self._json(200, {"status": "terminated"})
 
     def _handle_rerun(self, folder_name: str) -> None:
-        target = REPORT_ROOT / folder_name
-        if not target.is_dir():
+        target = _safe_under_root(folder_name)
+        if target is None or not target.is_dir():
             self._json(404, {"error": "not found"})
             return
         air_path = extract_air_path(target / "log.txt")
         if air_path is None:
             self._json(422, {"error": "no air_path in log"})
+            return
+        # Validate before handing to subprocess: must be an existing .air under Test/
+        ap = (PROJECT_ROOT / air_path).resolve()
+        if not (ap.exists() and ap.suffix == ".air" and TEST_ROOT in ap.parents):
+            self._json(422, {"error": "air_path not a valid .air under Test/"})
             return
         m = re.match(r"^(.+)_\d{8}_\d{6}$", folder_name)
         if not m:
@@ -261,7 +307,6 @@ class ReportHandler(SimpleHTTPRequestHandler):
             log_file = log_path.open("w", encoding="utf-8")
             
             dagster_run = Path(__file__).parent / "dagster_run.py"
-            import os
             env = os.environ.copy()
             env["PYTHONIOENCODING"] = "utf-8"
             try:
@@ -289,6 +334,7 @@ class ReportHandler(SimpleHTTPRequestHandler):
                 "log_file": log_file,
                 "log_path": log_path,
             }
+            _prune_jobs()
         self._json(200, {"job_id": job_id})
 
     def _handle_rerun_status(self, job_id: str) -> None:
@@ -314,32 +360,27 @@ class ReportHandler(SimpleHTTPRequestHandler):
         })
 
     def _handle_api_runs(self) -> None:
+        # Change-detection only: the client reads just status + ETag and reloads
+        # the page when the ETag changes, so we never build the run payload.
+        # ETag depends only on folder names, so skip reading every log.txt.
         try:
-            from dagster.aggregate_report import scan_runs
-            entries = scan_runs(REPORT_ROOT)
-            folder_names = [e.folder for e in entries]
+            folder_names = [
+                child.name
+                for child in REPORT_ROOT.iterdir()
+                if child.is_dir()
+                and parse_run_folder_name(child.name) is not None
+                and (child / "log.txt").exists()
+            ]
             etag = _compute_etag(folder_names)
-            client_etag = self.headers.get("If-None-Match", "")
-            if client_etag == etag:
+            if self.headers.get("If-None-Match", "") == etag:
                 self.send_response(304)
                 self.end_headers()
                 return
-            data = [
-                {
-                    "stem": e.stem,
-                    "when": e.when.isoformat(),
-                    "status": e.status,
-                    "folder": e.folder,
-                    "report_href": e.report_href,
-                }
-                for e in entries
-            ]
-            body = json.dumps(data).encode()
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.send_header("ETag", etag)
             self.end_headers()
-            self.wfile.write(body)
+            self.wfile.write(b"{}")
         except Exception as e:
             self._json(500, {"error": str(e)})
 
@@ -357,6 +398,13 @@ class ReportHandler(SimpleHTTPRequestHandler):
             job_id = clean.removeprefix("/rerun-logs/")
             self._handle_rerun_logs(job_id)
             return
+        # Rebuild on page load so newly-added Test/ cases show in the catalog
+        # without a restart or write event. ponytail: cheap globs, fine per-load.
+        if clean in ("/", "/report.html"):
+            try:
+                regenerate_global_report(REPORT_ROOT)
+            except Exception as e:
+                sys.stderr.write(f"[report_server] regen on GET failed: {e}\n")
         super().do_GET()
 
     def _handle_rerun_logs(self, job_id: str) -> None:
@@ -400,6 +448,8 @@ def main():
     parser = argparse.ArgumentParser(description="Dagster test report server")
     parser.add_argument("--port", type=int, default=7070)
     parser.add_argument("--root", type=str, default=str(REPORT_ROOT))
+    parser.add_argument("--host", type=str, default="127.0.0.1",
+                        help="Bind address. Default loopback-only; use 0.0.0.0 to expose on LAN.")
     args = parser.parse_args()
 
     REPORT_ROOT = Path(args.root).resolve()
@@ -413,8 +463,8 @@ def main():
     except Exception as e:
         print(f"[report_server] Failed to regenerate report: {e}")
 
-    server = ThreadingHTTPServer(("0.0.0.0", args.port), ReportHandler)
-    print(f"[report_server] Serving {REPORT_ROOT} at http://localhost:{args.port}/")
+    server = ThreadingHTTPServer((args.host, args.port), ReportHandler)
+    print(f"[report_server] Serving {REPORT_ROOT} at http://localhost:{args.port}/ (bind {args.host})")
     print(f"[report_server] DELETE endpoint: http://localhost:{args.port}/delete/<folder>")
     print(f"[report_server] DELETE-DATE endpoint: http://localhost:{args.port}/delete-date/<YYYY-MM-DD>")
     try:

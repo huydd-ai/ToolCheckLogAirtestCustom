@@ -280,7 +280,8 @@ def test_rerun_status_running_then_done(tmp_path):
 
 # ── /api/runs endpoint ────────────────────────────────────────────────────────
 
-def test_api_runs_returns_json(tmp_path):
+def test_api_runs_returns_etag(tmp_path):
+    # /api/runs is change-detection only: 200 + an ETag header, no run payload.
     folder = tmp_path / "tc01_login_20260619_100000"
     folder.mkdir()
     (folder / "log.txt").write_text(
@@ -288,12 +289,10 @@ def test_api_runs_returns_json(tmp_path):
     )
     server, _ = _make_test_server(tmp_path, 17077)
     try:
-        status, body = _get("http://127.0.0.1:17077/api/runs")
-        assert status == 200
-        data = json.loads(body)
-        assert isinstance(data, list)
-        assert data[0]["stem"] == "tc01_login"
-        assert data[0]["status"] == "PASS"
+        req = urllib.request.Request("http://127.0.0.1:17077/api/runs")
+        with urllib.request.urlopen(req) as r:
+            assert r.status == 200
+            assert r.headers.get("ETag", "")
     finally:
         server.shutdown()
 
