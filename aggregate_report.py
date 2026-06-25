@@ -2,11 +2,22 @@
 
 from __future__ import annotations
 
+import os
 import re
+import uuid
 from dataclasses import dataclass
 from datetime import date, datetime
 from html import escape
 from pathlib import Path
+
+
+def _js_arg(s: str) -> str:
+    """Escape a value for use as a single-quoted JS string literal inside a
+    double-quoted HTML attribute, e.g. onclick="fn('<here>')". JS-escape first
+    (backslash, quote), then HTML-escape so the attribute can't be broken out of.
+    Windows filenames can't contain " or \\, but ' is legal — this closes that gap."""
+    s = s.replace("\\", "\\\\").replace("'", "\\'")
+    return escape(s, quote=True)
 
 try:
     from dagster.report_theme import THEME_CSS
@@ -309,7 +320,7 @@ li:hover { border-color: var(--border); transform: translateX(4px); }
 #modal-bg { position: absolute; inset: 0; background: rgba(0,0,0,0.6); }
 #modal-panel {
   position: relative; z-index: 101; width: 92%; height: calc(100vh - 64px);
-  background: #fff; border: 1px solid var(--border); border-radius: var(--r);
+  background: var(--bg); border: 1px solid var(--border); border-radius: var(--r);
   display: flex; flex-direction: column; overflow: hidden;
   box-shadow: 0 24px 64px rgba(0,0,0,0.8);
 }
@@ -325,7 +336,7 @@ li:hover { border-color: var(--border); transform: translateX(4px); }
   width: 28px; height: 28px; border-radius: 6px; cursor: pointer;
 }
 #modal-close:hover { background: var(--bg-item); color: #fff; }
-#modal-frame { flex: 1; border: none; background: #fff; }
+#modal-frame { flex: 1; border: none; background: var(--bg); }
 
 /* Summary bar */
 .summary-bar {
@@ -454,7 +465,7 @@ async function deleteAllRuns(btn, dateStr) {
 })();
 
 var _runsEtag = '';
-var _rerunActive = false;
+var _activeRuns = 0;
 var _runOffsets = {};
 
 function toggleLogs(folder) {
@@ -503,7 +514,7 @@ async function rerunTest(btn, folder) {
     if (logsContainer) logsContainer.style.display = 'flex';
     
     _runOffsets[data.job_id] = 0;
-    _rerunActive = true;
+    _activeRuns++;
     pollRerunStatus(btn, folder, data.job_id, statusEl, termBtn, logsBtn, preEl, logsContainer);
   } catch (err) {
     btn.disabled = false;
@@ -531,7 +542,7 @@ function pollRerunStatus(btn, folder, jobId, statusEl, termBtn, logsBtn, preEl, 
       var data = await r.json();
       if (data.status !== 'running') {
         clearInterval(intervalId);
-        _rerunActive = false;
+        _activeRuns = Math.max(0, _activeRuns - 1);
         btn.disabled = false;
         btn.textContent = '↺ Rerun';
         if (termBtn) termBtn.style.display = 'none';
@@ -540,7 +551,7 @@ function pollRerunStatus(btn, folder, jobId, statusEl, termBtn, logsBtn, preEl, 
       }
     } catch (err) {
       clearInterval(intervalId);
-      _rerunActive = false;
+      _activeRuns = Math.max(0, _activeRuns - 1);
       btn.disabled = false;
       btn.textContent = '↺ Rerun';
       if (termBtn) termBtn.style.display = 'none';
@@ -550,7 +561,7 @@ function pollRerunStatus(btn, folder, jobId, statusEl, termBtn, logsBtn, preEl, 
 }
 
 async function refreshRunList() {
-  if (_rerunActive) return;  // don't reload mid-rerun — it'd kill the live log view
+  if (_activeRuns > 0) return;  // don't reload mid-rerun — it'd kill the live log view
   try {
     var headers = _runsEtag ? {'If-None-Match': _runsEtag} : {};
     var r = await fetch('/api/runs', {headers: headers});
@@ -660,7 +671,7 @@ async function runCatalogTest(btn, key, airPath) {
     if (preEl) preEl.textContent = 'Waiting for logs...\\n';
     if (logsContainer) logsContainer.style.display = 'flex';
     _runOffsets[data.job_id] = 0;
-    _rerunActive = true;
+    _activeRuns++;
     pollRerunStatus(btn, key, data.job_id, statusEl, termBtn, null, preEl, logsContainer);
   } catch (err) {
     btn.disabled = false; btn.textContent = orig;
@@ -704,21 +715,24 @@ def _append_date_group(html: list[str], date_str: str, rows: list[RunEntry], tod
         href = escape(r.report_href, quote=True)
         stem = escape(r.stem)
         folder = escape(r.folder)
+        href_js = _js_arg(r.report_href)
+        stem_js = _js_arg(r.stem)
+        folder_js = _js_arg(r.folder)
         time_str = r.when.strftime("%H:%M:%S")
         dev_id = escape(r.device, quote=True)
         html.append(f'<li class="run-item" data-status="{status_cls}" data-name="{escape(r.stem.lower(), quote=True)}" data-device="{dev_id}">')
         html.append('<div class="run-main">')
         html.append(f'<span class="badge {status_cls}">{escape(r.status)}</span>')
-        html.append(f'<a class="run-name" href="{href}" onclick="openReport(event, \'{href}\', \'{stem}\')">{stem}</a>')
+        html.append(f'<a class="run-name" href="{href}" onclick="openReport(event, \'{href_js}\', \'{stem_js}\')">{stem}</a>')
         html.append('</div>')
         html.append('<div class="run-meta">')
         html.append(f'<span class="dev-tag" title="Device">&#128241; {escape(r.device)}</span>')
         html.append(f'<span class="run-time">{time_str}</span>')
-        html.append(f'<button class="rerun-btn" data-folder="{folder}" onclick="rerunTest(this, \'{folder}\')" title="Rerun this test">↺ Rerun</button>')
-        html.append(f'<button class="terminate-btn" data-folder="{folder}" onclick="terminateTest(this, \'{folder}\')" title="Terminate this test">⏹ Terminate</button>')
-        html.append(f'<button class="logs-btn" data-folder="{folder}" onclick="toggleLogs(\'{folder}\')" title="Toggle CLI Logs">📄 Logs</button>')
+        html.append(f'<button class="rerun-btn" data-folder="{folder}" onclick="rerunTest(this, \'{folder_js}\')" title="Rerun this test">↺ Rerun</button>')
+        html.append(f'<button class="terminate-btn" data-folder="{folder}" onclick="terminateTest(this, \'{folder_js}\')" title="Terminate this test">⏹ Terminate</button>')
+        html.append(f'<button class="logs-btn" data-folder="{folder}" onclick="toggleLogs(\'{folder_js}\')" title="Toggle CLI Logs">📄 Logs</button>')
         html.append(f'<span class="rerun-status" data-folder="{folder}"></span>')
-        html.append(f'<button class="delete-btn" title="Delete Report" onclick="deleteRun(event, \'{folder}\')">')
+        html.append(f'<button class="delete-btn" title="Delete Report" onclick="deleteRun(event, \'{folder_js}\')">')
         html.append('<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path></svg>')
         html.append('</button>')
         html.append('</div>')
@@ -741,6 +755,8 @@ def _append_catalog(html: list[str], catalog: list[tuple[str, list[dict]]]) -> N
             idx += 1
             stem = escape(t["stem"])
             air = escape(t["air_path"], quote=True)
+            stem_js = _js_arg(t["stem"])
+            air_js = _js_arg(t["air_path"])
             status = t["last_status"]
             status_cls = status.lower() if status in {"PASS", "FAIL", "SKIP"} else "unknown"
             badge = escape(status) if status else "never run"
@@ -749,12 +765,13 @@ def _append_catalog(html: list[str], catalog: list[tuple[str, list[dict]]]) -> N
             html.append(f'<span class="badge {status_cls}">{badge}</span>')
             if t["last_href"]:
                 href = escape(t["last_href"], quote=True)
-                html.append(f'<a class="run-name" href="{href}" onclick="openReport(event, \'{href}\', \'{stem}\')">{stem}</a>')
+                href_js = _js_arg(t["last_href"])
+                html.append(f'<a class="run-name" href="{href}" onclick="openReport(event, \'{href_js}\', \'{stem_js}\')">{stem}</a>')
             else:
                 html.append(f'<span class="run-name">{stem}</span>')
             html.append('</div>')
             html.append('<div class="run-meta">')
-            html.append(f'<button class="rerun-btn" onclick="runCatalogTest(this, \'{key}\', \'{air}\')" title="Run this test">▶ Run</button>')
+            html.append(f'<button class="rerun-btn" onclick="runCatalogTest(this, \'{key}\', \'{air_js}\')" title="Run this test">▶ Run</button>')
             html.append(f'<button class="terminate-btn" id="cat-term-{key}" data-folder="{key}" onclick="terminateTest(this, \'{key}\')" style="display:none">⏹ Terminate</button>')
             html.append(f'<button class="logs-btn" onclick="toggleLogs(\'{key}\')" title="Toggle CLI Logs">📄 Logs</button>')
             html.append(f'<span class="rerun-status" id="cat-status-{key}"></span>')
@@ -862,7 +879,15 @@ def regenerate_global_report(report_root: Path, test_root: Path | None = None) -
     catalog = build_catalog(test_root, entries)
     html = render_html(suite_groups, catalog=catalog)
     out = report_root / "report.html"
-    out.write_text(html, encoding="utf-8")
+    # Atomic write: unique temp + os.replace so concurrent regens (page load +
+    # auto-refresh polls under ThreadingHTTPServer) never serve a torn file.
+    tmp = report_root / f".report.{uuid.uuid4().hex}.tmp"
+    try:
+        tmp.write_text(html, encoding="utf-8")
+        os.replace(tmp, out)
+    except OSError:
+        tmp.unlink(missing_ok=True)
+        raise
     return out
 
 
