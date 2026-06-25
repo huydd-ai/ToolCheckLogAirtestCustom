@@ -29,12 +29,15 @@ def run_single_test(air_path: Path, py_script: Path, mode: str, device_id: str, 
     recordings = []
     
     try:
-        # pyrefly: ignore [missing-import]
-        from dagster.OpenCVRecorder import OpenCVRecorder
-        recorder = OpenCVRecorder(
+        from dagster.ScrcpyRecorder import ScrcpyRecorder
+        recorder = ScrcpyRecorder(
             output=str(recording_path),
-            fps=120,
-            scale=0.5,
+            fps=30,
+            max_fps=30,
+            max_width=1024,
+            bitrate=4_000_000,
+            turn_screen_off=True,
+            device=device_id or None,
         )
         recorder.start()
     except Exception as e:
