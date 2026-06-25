@@ -5,6 +5,36 @@ from pathlib import Path
 import cv2
 import scrcpy
 
+_excepthook_installed = False
+
+
+def _install_quiet_excepthook():
+    """Swallow scrcpy's expected 'Video stream is disconnected' thread crash.
+
+    scrcpy's __stream_loop re-raises on drop, which Python dumps as a full
+    traceback to stderr. We already handle the drop via reconnect, so filter
+    just that one exception and chain everything else to the previous hook.
+    """
+    global _excepthook_installed
+    if _excepthook_installed:
+        return
+    _excepthook_installed = True
+    prev = threading.excepthook
+
+    def _from_scrcpy(tb):
+        while tb is not None:
+            if "scrcpy" in tb.tb_frame.f_code.co_filename.replace("\\", "/").lower():
+                return True
+            tb = tb.tb_next
+        return False
+
+    def hook(args):
+        if isinstance(args.exc_value, (ConnectionError, OSError)) and _from_scrcpy(args.exc_traceback):
+            return
+        prev(args)
+
+    threading.excepthook = hook
+
 
 class ScrcpyRecorder:
     """Record device screen via the scrcpy stream into a single continuous MP4.
@@ -17,7 +47,8 @@ class ScrcpyRecorder:
 
     def __init__(self, output: str | Path, fps: int = 10, scale: float = 1.0,
                  device: str | None = None, max_fps: int = 0, bitrate: int = 8_000_000,
-                 max_width: int = 0, turn_screen_off: bool = False, **kwargs):
+                 max_width: int = 0, turn_screen_off: bool = False,
+                 stay_awake: bool = False, **kwargs):
         self.output = Path(output)
         self.fps = fps
         self.scale = scale
@@ -26,6 +57,7 @@ class ScrcpyRecorder:
         self.bitrate = bitrate
         self.max_width = max_width
         self.turn_screen_off = turn_screen_off
+        self.stay_awake = stay_awake
         self._client = None
         self._serial = None
         self._current_frame = None
@@ -34,10 +66,19 @@ class ScrcpyRecorder:
         self._write_thread = None
         self._conn_thread = None
         self._writer = None
+        self._reconnects = 0
+        self._src_frames = 0
+        self._first_frame_ts = None
+        self._last_frame_ts = None
 
     def _on_frame(self, frame):
         if frame is not None:
             self._current_frame = frame
+            now = time.time()
+            if self._first_frame_ts is None:
+                self._first_frame_ts = now
+            self._last_frame_ts = now
+            self._src_frames += 1
 
     def _on_disconnect(self):
         # scrcpy stream dropped (server killed by app relaunch, device reconnect,
@@ -46,7 +87,8 @@ class ScrcpyRecorder:
 
     def _new_client(self):
         client = scrcpy.Client(device=self._serial, max_fps=self.max_fps,
-                               bitrate=self.bitrate, max_width=self.max_width)
+                               bitrate=self.bitrate, max_width=self.max_width,
+                               stay_awake=self.stay_awake)
         client.add_listener(scrcpy.EVENT_FRAME, self._on_frame)
         client.add_listener(scrcpy.EVENT_DISCONNECT, self._on_disconnect)
         return client
@@ -54,6 +96,8 @@ class ScrcpyRecorder:
     def start(self):
         if self._conn_thread and self._conn_thread.is_alive():
             raise RuntimeError("scrcpy recording already started")
+
+        _install_quiet_excepthook()
 
         self._serial = self.device
         if self._serial is None:
@@ -93,7 +137,9 @@ class ScrcpyRecorder:
             except Exception:
                 pass
             if self._disconnected.is_set() and not self._stop_event.is_set():
-                print("[WARN] ScrcpyRecorder: stream dropped, reconnecting")
+                self._reconnects += 1
+                if self._reconnects == 1:
+                    print("[WARN] ScrcpyRecorder: stream dropped, auto-reconnecting (silencing repeats)")
                 self._stop_event.wait(0.5)
 
     def _screen_off(self):
@@ -182,6 +228,15 @@ class ScrcpyRecorder:
         if self._writer:
             self._writer.release()
             self._writer = None
+
+        if self._reconnects:
+            print(f"[INFO] ScrcpyRecorder: {self._reconnects} stream reconnect(s) during run")
+
+        if self._src_frames and self._first_frame_ts and self._last_frame_ts:
+            span = self._last_frame_ts - self._first_frame_ts
+            src_fps = self._src_frames / span if span > 0 else 0
+            print(f"[INFO] ScrcpyRecorder: source delivered {self._src_frames} frames "
+                  f"over {span:.1f}s = {src_fps:.1f} real fps (writer target {self.fps})")
 
         if not self.output.exists() or self.output.stat().st_size < 1024:
             print(f"[WARN] scrcpy recording failed or is too small: {self.output}")

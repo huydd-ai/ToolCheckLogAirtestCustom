@@ -69,12 +69,15 @@ def main():
         print(f"[INFO] Running shard {args.shard_index + 1}/{args.shard_total} ({len(tests)} tests)")
 
     # 4. Device Connection
+    # cap_method=MINICAP for screen capture; ori_method=ADBORI gets orientation
+    # via adb instead of minicap's rotation watcher (avoids rotation glitches).
     if args.device:
         uri = args.device if args.device.lower().startswith("android://") else f"Android://127.0.0.1:5037/{args.device}"
+        uri += ("&" if "?" in uri else "?") + "cap_method=MINICAP&ori_method=ADBORI"
         connect_device(uri)
         device_id = args.device.rsplit("/", 1)[-1]
     else:
-        init_device()
+        init_device(cap_method="MINICAP", ori_method="ADBORI")
         device_id = G.DEVICE.serialno
 
     from pixon.common.adb_utils import set_default_serial
