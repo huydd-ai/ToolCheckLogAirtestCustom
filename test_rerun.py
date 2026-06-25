@@ -185,6 +185,7 @@ def test_rerun_reaps_stale_running_job(tmp_path):
         report_server._jobs["stale-0000"] = {
             "job_id": "stale-0000",
             "stem": "tc01_login",
+            "suite": Path(dummy_air).parent.name,
             "air_path": str(dummy_air),
             "proc": stale_proc,
             "status": "running",
@@ -206,6 +207,25 @@ def test_rerun_reaps_stale_running_job(tmp_path):
                 except Exception:
                     pass
         server.shutdown()
+
+
+def test_find_running_job_keys_on_suite_and_stem(tmp_path):
+    import report_server
+    report_server._jobs.clear()
+    import subprocess, sys, time
+    proc = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])
+    report_server._jobs["j1"] = {
+        "job_id": "j1", "suite": "HeartSystem", "stem": "tc01",
+        "proc": proc, "status": "running", "log_file": open(tmp_path / "j.log", "w"),
+        "log_path": tmp_path / "j.log",
+    }
+    try:
+        assert report_server._find_running_job("HeartSystem", "tc01") is not None
+        assert report_server._find_running_job("DailyMission", "tc01") is None  # different suite
+        assert report_server._find_running_job("HeartSystem", "tc02") is None   # different stem
+    finally:
+        proc.terminate()
+        report_server._jobs.clear()
 
 
 # ── /rerun-status endpoint ────────────────────────────────────────────────────
@@ -299,9 +319,156 @@ def test_api_runs_etag_304(tmp_path):
         server.shutdown()
 
 
+# ── /run path confinement ─────────────────────────────────────────────────────
+
+def test_run_rejects_path_outside_test_root(tmp_path):
+    server, _ = _make_test_server(tmp_path, 17081)
+    try:
+        req = urllib.request.Request(
+            "http://127.0.0.1:17081/run", method="POST",
+            data=json.dumps({"air_path": "../../etc/passwd"}).encode(),
+            headers={"Content-Type": "application/json"},
+        )
+        try:
+            with urllib.request.urlopen(req) as r:
+                status, body = r.status, json.loads(r.read())
+        except urllib.error.HTTPError as e:
+            status, body = e.code, json.loads(e.read())
+        assert status == 400
+        assert "error" in body
+    finally:
+        server.shutdown()
+
+
+def test_run_rejects_non_air(tmp_path, monkeypatch):
+    import report_server
+    monkeypatch.setattr(report_server, "PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr(report_server, "TEST_ROOT", (tmp_path / "Test").resolve())
+    (tmp_path / "Test" / "HeartSystem").mkdir(parents=True)
+    (tmp_path / "Test" / "HeartSystem" / "tc01.txt").write_text("x", encoding="utf-8")
+    server, _ = _make_test_server(tmp_path, 17082)
+    try:
+        req = urllib.request.Request(
+            "http://127.0.0.1:17082/run", method="POST",
+            data=json.dumps({"air_path": "Test/HeartSystem/tc01.txt"}).encode(),
+            headers={"Content-Type": "application/json"},
+        )
+        try:
+            with urllib.request.urlopen(req) as r:
+                status, body = r.status, json.loads(r.read())
+        except urllib.error.HTTPError as e:
+            status, body = e.code, json.loads(e.read())
+        assert status == 400
+    finally:
+        server.shutdown()
+
+
+def test_run_accepts_valid_air_returns_job_id(tmp_path, monkeypatch):
+    import report_server
+    monkeypatch.setattr(report_server, "PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr(report_server, "TEST_ROOT", (tmp_path / "Test").resolve())
+    air = tmp_path / "Test" / "HeartSystem" / "tc01_a.air"
+    air.parent.mkdir(parents=True)
+    air.mkdir()  # .air is a directory containing a .py (matches dagster layout)
+    (air / "tc01_a.py").write_text("def main(): pass\n", encoding="utf-8")
+    server, _ = _make_test_server(tmp_path, 17083)
+    try:
+        req = urllib.request.Request(
+            "http://127.0.0.1:17083/run", method="POST",
+            data=json.dumps({"air_path": "Test/HeartSystem/tc01_a.air"}).encode(),
+            headers={"Content-Type": "application/json"},
+        )
+        with urllib.request.urlopen(req) as r:
+            status, body = r.status, json.loads(r.read())
+        assert status == 200
+        assert len(body["job_id"]) == 36
+    finally:
+        with report_server._jobs_lock:
+            for job in report_server._jobs.values():
+                try: job["proc"].terminate()
+                except Exception: pass
+        server.shutdown()
+
+
+def test_run_job_served_by_rerun_status(tmp_path, monkeypatch):
+    """A /run-launched job shares the job-dict shape used by /rerun-status."""
+    import report_server
+    monkeypatch.setattr(report_server, "PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr(report_server, "TEST_ROOT", (tmp_path / "Test").resolve())
+    air = tmp_path / "Test" / "HeartSystem" / "tc01_a.air"
+    air.parent.mkdir(parents=True)
+    air.mkdir()  # .air is a directory containing a .py (matches dagster layout)
+    (air / "tc01_a.py").write_text("def main(): pass\n", encoding="utf-8")
+    server, _ = _make_test_server(tmp_path, 17086)
+    try:
+        req = urllib.request.Request(
+            "http://127.0.0.1:17086/run", method="POST",
+            data=json.dumps({"air_path": "Test/HeartSystem/tc01_a.air"}).encode(),
+            headers={"Content-Type": "application/json"},
+        )
+        with urllib.request.urlopen(req) as r:
+            status, body = r.status, json.loads(r.read())
+        assert status == 200
+        job_id = body["job_id"]
+        # Same job-dict must be queryable through /rerun-status.
+        s2, b2 = _get(f"http://127.0.0.1:17086/rerun-status/{job_id}")
+        assert s2 == 200
+        data = json.loads(b2)
+        assert data["status"] in ("running", "done", "failed")
+    finally:
+        with report_server._jobs_lock:
+            for job in report_server._jobs.values():
+                try: job["proc"].terminate()
+                except Exception: pass
+        server.shutdown()
+
+
+# ── /run malformed body ───────────────────────────────────────────────────────
+
+def test_run_malformed_content_length_returns_400(tmp_path):
+    """A Content-Length header like 'abc' must return 400, not crash the handler."""
+    import http.client
+    server, _ = _make_test_server(tmp_path, 17084)
+    try:
+        conn = http.client.HTTPConnection("127.0.0.1", 17084)
+        # Send a raw POST with a non-numeric Content-Length header
+        conn.request(
+            "POST", "/run",
+            body=b"{}",
+            headers={"Content-Length": "abc", "Content-Type": "application/json"},
+        )
+        resp = conn.getresponse()
+        assert resp.status == 400
+        data = json.loads(resp.read())
+        assert "error" in data
+        conn.close()
+    finally:
+        server.shutdown()
+
+
+def test_run_invalid_json_body_returns_400(tmp_path):
+    """A body that is not valid JSON must return 400, not crash the handler."""
+    server, _ = _make_test_server(tmp_path, 17085)
+    try:
+        req = urllib.request.Request(
+            "http://127.0.0.1:17085/run", method="POST",
+            data=b"not-json-at-all",
+            headers={"Content-Type": "application/json"},
+        )
+        try:
+            with urllib.request.urlopen(req) as r:
+                status, body = r.status, json.loads(r.read())
+        except urllib.error.HTTPError as e:
+            status, body = e.code, json.loads(e.read())
+        assert status == 400
+        assert "error" in body
+    finally:
+        server.shutdown()
+
+
 # ── dashboard HTML ────────────────────────────────────────────────────────────
 
-from aggregate_report import render_html, group_by_date, RunEntry
+from aggregate_report import render_html, group_by_date, group_by_suite_then_date, RunEntry
 from datetime import datetime
 
 
@@ -316,18 +483,18 @@ def _make_entry(stem="tc01_login", status="PASS"):
 
 
 def test_dashboard_has_rerun_button():
-    html = render_html(group_by_date([_make_entry()]))
+    html = render_html(group_by_suite_then_date([_make_entry()]))
     assert 'class="rerun-btn"' in html
     assert 'data-folder="tc01_login_20260619_100000"' in html
 
 
 def test_dashboard_has_rerun_status_span():
-    html = render_html(group_by_date([_make_entry()]))
+    html = render_html(group_by_suite_then_date([_make_entry()]))
     assert 'class="rerun-status"' in html
 
 
 def test_dashboard_has_rerun_js_functions():
-    html = render_html(group_by_date([_make_entry()]))
+    html = render_html(group_by_suite_then_date([_make_entry()]))
     assert "rerunTest" in html
     assert "pollRerunStatus" in html
     assert "refreshRunList" in html

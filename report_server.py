@@ -25,18 +25,20 @@ _dagster_dir = Path(__file__).resolve().parent
 _project_root = _dagster_dir.parent
 sys.path.insert(0, str(_project_root))
 
+PROJECT_ROOT = _project_root
+TEST_ROOT = (_project_root / "Test").resolve()
+
 from dagster.aggregate_report import regenerate_global_report
 
 
 def extract_air_path(log_path: Path) -> str | None:
     """Read AIR_PATH= from first line of log.txt. Returns None if absent or unreadable."""
     try:
-        with log_path.open("r", encoding="utf-8", errors="replace") as f:
-            first_line = f.readline().rstrip("\n")
-    except OSError:
-        return None
-    if first_line.startswith("AIR_PATH="):
-        return first_line[len("AIR_PATH="):]
+        first_line = log_path.read_text(encoding="utf-8", errors="replace").splitlines()[0]
+        if first_line.startswith("AIR_PATH="):
+            return first_line.removeprefix("AIR_PATH=")
+    except (OSError, IndexError):
+        pass
     return None
 
 
@@ -58,6 +60,22 @@ def _compute_etag(folder_names: list[str]) -> str:
 
 _jobs: dict[str, dict] = {}
 _jobs_lock = threading.Lock()
+
+
+def _find_running_job(suite: str, stem: str) -> dict | None:
+    """Return a still-running job for (suite, stem), reaping any whose process
+    already exited. Caller must hold _jobs_lock."""
+    for job in _jobs.values():
+        if job.get("suite") == suite and job["stem"] == stem and job["status"] == "running":
+            rc = job["proc"].poll()
+            if rc is None:
+                return job
+            # process exited but never reaped (client poller died) — reap it
+            job["exit_code"] = rc
+            job["status"] = "done" if rc == 0 else "failed"
+            if "log_file" in job and not job["log_file"].closed:
+                job["log_file"].close()
+    return None
 
 REPORT_ROOT = Path(__file__).parent / "report_run"
 
@@ -141,8 +159,56 @@ class ReportHandler(SimpleHTTPRequestHandler):
             job_id = self.path.removeprefix("/rerun-terminate/")
             self._handle_rerun_terminate(job_id)
             return
+        if self.path == "/run":
+            self._handle_run()
+            return
         self.send_response(405)
         self.end_headers()
+
+    def _handle_run(self) -> None:
+        try:
+            length = int(self.headers.get("Content-Length", "0") or "0")
+            payload = json.loads(self.rfile.read(length) or b"{}")
+            air_path = payload.get("air_path", "")
+        except (ValueError, OSError):
+            self._json(400, {"error": "bad request body"})
+            return
+        if not air_path:
+            self._json(400, {"error": "air_path required"})
+            return
+        p = (PROJECT_ROOT / air_path).resolve()
+        if not (p.exists() and p.suffix == ".air" and TEST_ROOT in p.parents):
+            self._json(400, {"error": "path must be an existing .air under Test/"})
+            return
+        suite = p.parent.name or "unknown"
+        stem = p.stem
+        with _jobs_lock:
+            if _find_running_job(suite, stem) is not None:
+                self._json(409, {"error": "already running"})
+                return
+            job_id = str(uuid.uuid4())
+            log_path = REPORT_ROOT / f"{job_id}.log"
+            log_file = log_path.open("w", encoding="utf-8")
+            dagster_run = Path(__file__).parent / "dagster_run.py"
+            import os
+            env = os.environ.copy()
+            env["PYTHONIOENCODING"] = "utf-8"
+            try:
+                proc = subprocess.Popen(
+                    [sys.executable, "-u", str(dagster_run), str(p)],
+                    stdout=log_file, stderr=subprocess.STDOUT, env=env,
+                )
+            except FileNotFoundError:
+                log_file.close()
+                self._json(500, {"error": "dagster_run.py not found"})
+                return
+            _jobs[job_id] = {
+                "job_id": job_id, "suite": suite, "stem": stem,
+                "air_path": str(p), "proc": proc, "status": "running",
+                "new_folder": None, "exit_code": None, "started": time.time(),
+                "log_file": log_file, "log_path": log_path,
+            }
+        self._json(200, {"job_id": job_id})
 
     def _handle_rerun_terminate(self, job_id: str) -> None:
         with _jobs_lock:
@@ -184,20 +250,11 @@ class ReportHandler(SimpleHTTPRequestHandler):
             self._json(400, {"error": "invalid folder name"})
             return
         stem = m.group(1)
+        suite = Path(air_path).parent.name or "unknown"
         with _jobs_lock:
-            for job in _jobs.values():
-                if job["stem"] == stem and job["status"] == "running":
-                    rc = job["proc"].poll()
-                    if rc is None:
-                        self._json(409, {"error": "already running"})
-                        return
-                    # Process already exited but status was never reaped (e.g. the
-                    # client poller died when the page reloaded). Reap it so it
-                    # doesn't block reruns forever.
-                    job["exit_code"] = rc
-                    job["status"] = "done" if rc == 0 else "failed"
-                    if "log_file" in job and not job["log_file"].closed:
-                        job["log_file"].close()
+            if _find_running_job(suite, stem) is not None:
+                self._json(409, {"error": "already running"})
+                return
             job_id = str(uuid.uuid4())
             log_path = REPORT_ROOT / f"{job_id}.log"
             # Keep file open for the lifetime of the process
@@ -222,6 +279,7 @@ class ReportHandler(SimpleHTTPRequestHandler):
             _jobs[job_id] = {
                 "job_id": job_id,
                 "stem": stem,
+                "suite": suite,
                 "air_path": air_path,
                 "proc": proc,
                 "status": "running",

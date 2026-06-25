@@ -16,6 +16,7 @@ except ModuleNotFoundError:
 _FOLDER_RE = re.compile(r"^(.+)_(\d{8})_(\d{6})$")
 _STATUS_RE = re.compile(r"^#\s*Status:\s*(PASS|FAIL|SKIP)\b", re.MULTILINE)
 _DEVICE_RE = re.compile(r"^DEVICE=(.+)$", re.MULTILINE)
+_AIR_PATH_RE = re.compile(r"^AIR_PATH=(.+)$", re.MULTILINE)
 
 def parse_run_folder_name(name: str) -> tuple[str, datetime] | None:
     m = _FOLDER_RE.match(name)
@@ -49,6 +50,18 @@ def extract_device(log_path: Path) -> str:
     m = _DEVICE_RE.search(head)
     return m.group(1).strip() if m else "unknown"
 
+def extract_suite(log_path: Path) -> str:
+    """Suite = parent dir name of AIR_PATH in log.txt head. 'unknown' if absent."""
+    try:
+        with log_path.open("r", encoding="utf-8", errors="replace") as f:
+            head = f.read(1024)
+    except OSError:
+        return "unknown"
+    m = _AIR_PATH_RE.search(head)
+    if not m:
+        return "unknown"
+    return Path(m.group(1).strip()).parent.name or "unknown"
+
 @dataclass(frozen=True)
 class RunEntry:
     stem: str
@@ -57,6 +70,7 @@ class RunEntry:
     folder: str
     report_href: str
     device: str = "unknown"
+    suite: str = "unknown"
 
 def scan_runs(report_root: Path) -> list[RunEntry]:
     if not report_root.exists():
@@ -74,6 +88,7 @@ def scan_runs(report_root: Path) -> list[RunEntry]:
         stem, when = parsed
         status = extract_status(log_path)
         device = extract_device(log_path)
+        suite = extract_suite(log_path)
         entries.append(
             RunEntry(
                 stem=stem,
@@ -82,9 +97,47 @@ def scan_runs(report_root: Path) -> list[RunEntry]:
                 folder=child.name,
                 report_href=f"{child.name}/report.html",
                 device=device,
+                suite=suite,
             )
         )
     return entries
+
+def scan_catalog(test_root: Path) -> dict[str, list[str]]:
+    """Map suite folder -> sorted .air stems under test_root/<suite>/. All test cases,
+    run or not. Matches .air entries (directories in this repo) one level under each suite;
+    __pycache__ excluded by the .air suffix."""
+    if not test_root.exists():
+        return {}
+    catalog: dict[str, list[str]] = {}
+    for air in test_root.glob("*/*.air"):
+        catalog.setdefault(air.parent.name, []).append(air.stem)
+    for stems in catalog.values():
+        stems.sort()
+    return dict(sorted(catalog.items()))
+
+def build_catalog(
+    test_root: Path, entries: list[RunEntry]
+) -> list[tuple[str, list[dict]]]:
+    """Join scan_catalog() with run history on (suite, stem). Each test gets its
+    newest run's status + report href (or None if never run)."""
+    newest: dict[tuple[str, str], RunEntry] = {}
+    for e in entries:
+        key = (e.suite, e.stem)
+        if key not in newest or e.when > newest[key].when:
+            newest[key] = e
+    out: list[tuple[str, list[dict]]] = []
+    for suite, stems in scan_catalog(test_root).items():
+        tests = []
+        for stem in stems:
+            run = newest.get((suite, stem))
+            tests.append({
+                "stem": stem,
+                "air_path": f"{test_root.name}/{suite}/{stem}.air",
+                "last_status": run.status if run else None,
+                "last_href": run.report_href if run else None,
+            })
+        out.append((suite, tests))
+    return out
 
 def group_by_date(entries: list[RunEntry]) -> list[tuple[str, list[RunEntry]]]:
     by_date: dict[str, list[RunEntry]] = {}
@@ -94,6 +147,16 @@ def group_by_date(entries: list[RunEntry]) -> list[tuple[str, list[RunEntry]]]:
     for rows in by_date.values():
         rows.sort(key=lambda r: r.when, reverse=True)
     return sorted(by_date.items(), key=lambda kv: kv[0], reverse=True)
+
+def group_by_suite_then_date(
+    entries: list[RunEntry],
+) -> list[tuple[str, list[tuple[str, list[RunEntry]]]]]:
+    by_suite: dict[str, list[RunEntry]] = {}
+    for e in entries:
+        by_suite.setdefault(e.suite, []).append(e)
+    # "unknown" sorts last, others alphabetical
+    suite_keys = sorted(by_suite, key=lambda s: (s == "unknown", s))
+    return [(s, group_by_date(by_suite[s])) for s in suite_keys]
 
 _CSS = """
 body { padding: 40px 24px; }
@@ -160,7 +223,7 @@ li {
   transition: all 0.2s;
 }
 li:hover { border-color: var(--border); transform: translateX(4px); }
-.run-main { display: flex; align-items: center; gap: 16px; }
+.run-main { display: flex; align-items: center; gap: 16px; flex: 1; min-width: 0; }
 .badge { 
   padding: 4px 12px; 
   border-radius: 20px; 
@@ -174,7 +237,7 @@ li:hover { border-color: var(--border); transform: translateX(4px); }
 .badge.pass { background: rgba(16, 185, 129, 0.15); color: var(--pass); border: 1px solid rgba(16,185,129,0.3); }
 .badge.fail { background: rgba(239, 68, 68, 0.15); color: var(--fail); border: 1px solid rgba(239,68,68,0.3); }
 .badge.skip { background: rgba(100, 116, 139, 0.15); color: var(--skip); border: 1px solid rgba(100,116,139,0.3); }
-.run-name { color: var(--text-main); font-weight: 500; text-decoration: none; transition: color 0.2s; }
+.run-name { color: var(--text-main); font-weight: 500; text-decoration: none; transition: color 0.2s; word-break: break-word; white-space: pre-wrap; display: block; }
 .run-name:hover { color: var(--accent); }
 .run-meta { display: flex; align-items: center; gap: 16px; }
 .run-time { color: var(--text-dim); font-size: 13px; font-variant-numeric: tabular-nums; }
@@ -309,6 +372,13 @@ li:hover { border-color: var(--border); transform: translateX(4px); }
   font-family: ui-monospace, Consolas, monospace; font-size: 11px; color: var(--text-dim);
   background: var(--bg); border: 1px solid var(--border); border-radius: 4px; padding: 2px 8px; white-space: nowrap;
 }
+.tabs { display: flex; gap: 8px; margin-bottom: 20px; }
+.tab-btn { background: var(--bg); border: 1px solid var(--border); color: var(--text-dim); padding: 8px 18px; border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: 600; }
+.tab-btn.active { color: var(--text-main); border-color: var(--accent); }
+.tab-pane { display: none; }
+.tab-pane.active { display: block; }
+.suite-summary { font-weight: 700; }
+.suite-content { padding-left: 8px; }
 """.strip()
 
 _JS = """
@@ -554,6 +624,49 @@ function applyDashboardFilters() {
     });
   });
 })();
+
+function showTab(name) {
+  document.querySelectorAll('.tab-pane').forEach(function(p){ p.classList.remove('active'); });
+  document.querySelectorAll('.tab-btn').forEach(function(b){ b.classList.remove('active'); });
+  var pane = document.getElementById('tab-' + name);
+  if (pane) pane.classList.add('active');
+  var btn = document.querySelector('.tab-btn[data-tab="' + name + '"]');
+  if (btn) btn.classList.add('active');
+}
+
+async function runCatalogTest(btn, key, airPath) {
+  btn.disabled = true;
+  var orig = btn.textContent;
+  btn.textContent = '…';
+  var statusEl = document.getElementById('cat-status-' + key);
+  var termBtn = document.getElementById('cat-term-' + key);
+  var preEl = document.getElementById('pre-' + key);
+  var logsContainer = document.getElementById('logs-' + key);
+  if (statusEl) statusEl.textContent = 'Starting…';
+  try {
+    var r = await fetch('/run', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({air_path: airPath})
+    });
+    var data = await r.json();
+    if (!r.ok) {
+      btn.disabled = false; btn.textContent = orig;
+      if (statusEl) statusEl.textContent = data.error || 'Error';
+      return;
+    }
+    if (statusEl) statusEl.textContent = 'Running…';
+    if (termBtn) { termBtn.style.display = 'inline-block'; termBtn.disabled = false; termBtn.setAttribute('data-job-id', data.job_id); }
+    if (preEl) preEl.textContent = 'Waiting for logs...\\n';
+    if (logsContainer) logsContainer.style.display = 'flex';
+    _runOffsets[data.job_id] = 0;
+    _rerunActive = true;
+    pollRerunStatus(btn, key, data.job_id, statusEl, termBtn, null, preEl, logsContainer);
+  } catch (err) {
+    btn.disabled = false; btn.textContent = orig;
+    if (statusEl) statusEl.textContent = 'Server offline';
+  }
+}
 """
 
 def _count_statuses(rows: list[RunEntry]) -> str:
@@ -577,7 +690,84 @@ def _device_summary(rows: list[RunEntry]) -> list[dict]:
     return sorted(by_dev.values(), key=lambda d: d["last"], reverse=True)
 
 
-def render_html(groups: list[tuple[str, list[RunEntry]]]) -> str:
+def _append_date_group(html: list[str], date_str: str, rows: list[RunEntry], today_str: str) -> None:
+    open_attr = " open" if date_str == today_str else ""
+    summary = f"{escape(date_str)} &mdash; {escape(_count_statuses(rows))}"
+    html.append(f'<details{open_attr}>')
+    html.append('<summary>')
+    html.append(f'<div class="summary-left"><span>{summary}</span></div>')
+    html.append(f'<button class="delete-all-btn" onclick="deleteAllRuns(this, \'{escape(date_str)}\')">Delete All</button>')
+    html.append('</summary>')
+    html.append('<div class="group-content"><ul>')
+    for r in rows:
+        status_cls = r.status.lower() if r.status in {"PASS", "FAIL", "SKIP"} else "unknown"
+        href = escape(r.report_href, quote=True)
+        stem = escape(r.stem)
+        folder = escape(r.folder)
+        time_str = r.when.strftime("%H:%M:%S")
+        dev_id = escape(r.device, quote=True)
+        html.append(f'<li class="run-item" data-status="{status_cls}" data-name="{escape(r.stem.lower(), quote=True)}" data-device="{dev_id}">')
+        html.append('<div class="run-main">')
+        html.append(f'<span class="badge {status_cls}">{escape(r.status)}</span>')
+        html.append(f'<a class="run-name" href="{href}" onclick="openReport(event, \'{href}\', \'{stem}\')">{stem}</a>')
+        html.append('</div>')
+        html.append('<div class="run-meta">')
+        html.append(f'<span class="dev-tag" title="Device">&#128241; {escape(r.device)}</span>')
+        html.append(f'<span class="run-time">{time_str}</span>')
+        html.append(f'<button class="rerun-btn" data-folder="{folder}" onclick="rerunTest(this, \'{folder}\')" title="Rerun this test">↺ Rerun</button>')
+        html.append(f'<button class="terminate-btn" data-folder="{folder}" onclick="terminateTest(this, \'{folder}\')" title="Terminate this test">⏹ Terminate</button>')
+        html.append(f'<button class="logs-btn" data-folder="{folder}" onclick="toggleLogs(\'{folder}\')" title="Toggle CLI Logs">📄 Logs</button>')
+        html.append(f'<span class="rerun-status" data-folder="{folder}"></span>')
+        html.append(f'<button class="delete-btn" title="Delete Report" onclick="deleteRun(event, \'{folder}\')">')
+        html.append('<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path></svg>')
+        html.append('</button>')
+        html.append('</div>')
+        html.append('</li>')
+        html.append(f'<li class="run-logs-container" id="logs-{folder}"><pre id="pre-{folder}"></pre></li>')
+    html.append('</ul></div></details>')
+
+
+def _append_catalog(html: list[str], catalog: list[tuple[str, list[dict]]]) -> None:
+    if not catalog:
+        html.append('<p class="empty-state">No test root found (../Test missing).</p>')
+        return
+    idx = 0
+    for suite, tests in catalog:
+        html.append('<details open class="suite-group">')
+        html.append(f'<summary class="suite-summary"><span>{escape(suite)}</span> &mdash; {len(tests)} tests</summary>')
+        html.append('<div class="group-content"><ul>')
+        for t in tests:
+            key = f"cat{idx}"
+            idx += 1
+            stem = escape(t["stem"])
+            air = escape(t["air_path"], quote=True)
+            status = t["last_status"]
+            status_cls = status.lower() if status in {"PASS", "FAIL", "SKIP"} else "unknown"
+            badge = escape(status) if status else "never run"
+            html.append('<li class="run-item">')
+            html.append('<div class="run-main">')
+            html.append(f'<span class="badge {status_cls}">{badge}</span>')
+            if t["last_href"]:
+                href = escape(t["last_href"], quote=True)
+                html.append(f'<a class="run-name" href="{href}" onclick="openReport(event, \'{href}\', \'{stem}\')">{stem}</a>')
+            else:
+                html.append(f'<span class="run-name">{stem}</span>')
+            html.append('</div>')
+            html.append('<div class="run-meta">')
+            html.append(f'<button class="rerun-btn" onclick="runCatalogTest(this, \'{key}\', \'{air}\')" title="Run this test">▶ Run</button>')
+            html.append(f'<button class="terminate-btn" id="cat-term-{key}" data-folder="{key}" onclick="terminateTest(this, \'{key}\')" style="display:none">⏹ Terminate</button>')
+            html.append(f'<button class="logs-btn" onclick="toggleLogs(\'{key}\')" title="Toggle CLI Logs">📄 Logs</button>')
+            html.append(f'<span class="rerun-status" id="cat-status-{key}"></span>')
+            html.append('</div>')
+            html.append('</li>')
+            html.append(f'<li class="run-logs-container" id="logs-{key}"><pre id="pre-{key}"></pre></li>')
+        html.append('</ul></div></details>')
+
+
+def render_html(
+    suite_groups: list[tuple[str, list[tuple[str, list[RunEntry]]]]],
+    catalog: list[tuple[str, list[dict]]] | None = None,
+) -> str:
     today_str = date.today().strftime("%Y-%m-%d")
     html = [
         "<!DOCTYPE html>",
@@ -591,13 +781,18 @@ def render_html(groups: list[tuple[str, list[RunEntry]]]) -> str:
         '<body>',
         '<div class="container">',
         '<h1>Dagster Test Reports</h1>',
-        '<div id="banner" style="display:none; background:rgba(239,68,68,0.15); border:1px solid var(--fail); color:var(--fail); padding:12px; border-radius:8px; margin-bottom:16px; font-size:14px;"></div>'
+        '<div id="banner" style="display:none; background:rgba(239,68,68,0.15); border:1px solid var(--fail); color:var(--fail); padding:12px; border-radius:8px; margin-bottom:16px; font-size:14px;"></div>',
+        '<div class="tabs">',
+        '<button class="tab-btn active" data-tab="report" onclick="showTab(\'report\')">Report</button>',
+        '<button class="tab-btn" data-tab="catalog" onclick="showTab(\'catalog\')">Test Catalog</button>',
+        '</div>',
+        '<div id="tab-report" class="tab-pane active">',
     ]
-    
-    if not groups:
+
+    if not suite_groups:
         html.append('<p class="empty-state">No test runs found. Generate some reports to see them here!</p>')
     else:
-        all_rows = [r for _, rows in groups for r in rows]
+        all_rows = [r for _, dgs in suite_groups for _, rows in dgs for r in rows]
         n_pass = sum(1 for r in all_rows if r.status == "PASS")
         n_fail = sum(1 for r in all_rows if r.status == "FAIL")
         denom = n_pass + n_fail
@@ -634,47 +829,21 @@ def render_html(groups: list[tuple[str, list[RunEntry]]]) -> str:
         html.append('<button class="filter-pill" data-status="skip">Skip</button>')
         html.append('</div>')
 
-        for date_str, rows in groups:
-            open_attr = " open" if date_str == today_str else ""
-            summary = f"{escape(date_str)} &mdash; {escape(_count_statuses(rows))}"
-            html.append(f'<details{open_attr}>')
-            html.append('<summary>')
-            html.append(f'<div class="summary-left"><span>{summary}</span></div>')
-            html.append(f'<button class="delete-all-btn" onclick="deleteAllRuns(this, \'{escape(date_str)}\')">Delete All</button>')
-            html.append('</summary>')
-            html.append('<div class="group-content"><ul>')
-            
-            for r in rows:
-                status_cls = r.status.lower() if r.status in {"PASS", "FAIL", "SKIP"} else "unknown"
-                href = escape(r.report_href, quote=True)
-                stem = escape(r.stem)
-                folder = escape(r.folder)
-                time_str = r.when.strftime("%H:%M:%S")
-                
-                dev_id = escape(r.device, quote=True)
-                html.append(f'<li class="run-item" data-status="{status_cls}" data-name="{escape(r.stem.lower(), quote=True)}" data-device="{dev_id}">')
-                html.append('<div class="run-main">')
-                html.append(f'<span class="badge {status_cls}">{escape(r.status)}</span>')
-                html.append(f'<a class="run-name" href="{href}" onclick="openReport(event, \'{href}\', \'{stem}\')">{stem}</a>')
-                html.append('</div>')
-                html.append('<div class="run-meta">')
-                html.append(f'<span class="dev-tag" title="Device">&#128241; {escape(r.device)}</span>')
-                html.append(f'<span class="run-time">{time_str}</span>')
-                html.append(f'<button class="rerun-btn" data-folder="{folder}" onclick="rerunTest(this, \'{folder}\')" title="Rerun this test">↺ Rerun</button>')
-                html.append(f'<button class="terminate-btn" data-folder="{folder}" onclick="terminateTest(this, \'{folder}\')" title="Terminate this test">⏹ Terminate</button>')
-                html.append(f'<button class="logs-btn" data-folder="{folder}" onclick="toggleLogs(\'{folder}\')" title="Toggle CLI Logs">📄 Logs</button>')
-                html.append(f'<span class="rerun-status" data-folder="{folder}"></span>')
-                html.append(f'<button class="delete-btn" title="Delete Report" onclick="deleteRun(event, \'{folder}\')">')
-                html.append('<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path></svg>')
-                html.append('</button>')
-                html.append('</div>')
-                html.append('</li>')
-                html.append(f'<li class="run-logs-container" id="logs-{folder}"><pre id="pre-{folder}"></pre></li>')
-                
-            html.append('</ul></div></details>')
-            
+        for suite, date_groups in suite_groups:
+            html.append('<details open class="suite-group">')
+            html.append(f'<summary class="suite-summary"><span>{escape(suite)}</span></summary>')
+            html.append('<div class="suite-content">')
+            for date_str, rows in date_groups:
+                _append_date_group(html, date_str, rows, today_str)
+            html.append('</div></details>')
+
+    html.append('</div>')  # end tab-report
+    html.append('<div id="tab-catalog" class="tab-pane">')
+    _append_catalog(html, catalog or [])
+    html.append('</div>')  # end tab-catalog
+
     html.append('</div>') # end container
-    
+
     # Modal HTML
     html.append('<div id="modal"><div id="modal-bg"></div><div id="modal-panel">')
     html.append('<div id="modal-bar"><div id="modal-title"></div><button id="modal-close">x</button></div>')
@@ -684,11 +853,14 @@ def render_html(groups: list[tuple[str, list[RunEntry]]]) -> str:
     html.append('</body></html>')
     return "\n".join(html)
 
-def regenerate_global_report(report_root: Path) -> Path:
+def regenerate_global_report(report_root: Path, test_root: Path | None = None) -> Path:
     report_root.mkdir(parents=True, exist_ok=True)
+    if test_root is None:
+        test_root = Path(__file__).resolve().parent.parent / "Test"
     entries = scan_runs(report_root)
-    groups = group_by_date(entries)
-    html = render_html(groups)
+    suite_groups = group_by_suite_then_date(entries)
+    catalog = build_catalog(test_root, entries)
+    html = render_html(suite_groups, catalog=catalog)
     out = report_root / "report.html"
     out.write_text(html, encoding="utf-8")
     return out
