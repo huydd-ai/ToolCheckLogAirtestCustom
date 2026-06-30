@@ -39,10 +39,13 @@ snippets, live refresh.
 Extract scan/parse out of `aggregate_report.py` so both the server API and the static
 generator consume one source of truth.
 
-- `RunEntry` — extend existing dataclass with `folder: str`, `duration: float | None`,
-  `error_summary: str | None` (last FAIL behaviour, parsed from `log.txt`; fall back to
-  last traceback line in `airtest.log`).
+- `RunEntry` — already has `folder` + `report_href` (in `aggregate_report.py`). Add only
+  `duration: float | None` and `error_summary: str | None` (last FAIL behaviour, parsed
+  from `log.txt`; fall back to last traceback line in `airtest.log`).
 - `scan_runs(report_root) -> list[RunEntry]` — moved from `aggregate_report.py`.
+  **Single-head-read:** today `extract_status` + `extract_device` + `extract_suite` open
+  `log.txt` 3× per folder; adding `error_summary` would make 4×. Under polling this is
+  wasteful I/O. Refactor to read the head once and parse all fields from that one buffer.
 - `compute_metrics(runs) -> Metrics`:
   - totals: count, pass / fail / skip
   - `pass_rate` (%) overall
@@ -58,13 +61,23 @@ generator consume one source of truth.
 
 New GET endpoints (return `application/json`):
 
-- `GET /api/runs` — serialized `RunEntry` list; sets `ETag` header (reuse `_compute_etag`).
-  Returns `304 Not Modified` when `If-None-Match` matches → polling is cheap.
+- `GET /api/runs` — serialized `RunEntry` list; sets `ETag` header.
+  **ETag must fold in folder mtimes, not just names.** Current `_compute_etag` hashes the
+  sorted folder-name list only; a running test's folder name never changes, so a
+  name-only ETag returns `304` and the SPA never sees in-progress status flips. Extend the
+  ETag input to include each folder's `mtime` (and `/api/jobs` state hash) so live changes
+  bust the cache. Returns `304 Not Modified` when `If-None-Match` matches.
 - `GET /api/metrics` — serialized `compute_metrics` output.
 - `GET /api/catalog` — suites/tests via existing `scan_catalog` (move to `report_data.py`).
+- `GET /api/jobs` — **new, required for live updates.** Running-test state lives in the
+  in-memory `_jobs` dict in `report_server.py`, *separate from folders* — `scan_runs` cannot
+  see it. Expose `_jobs` as JSON: `[{job_id, suite, stem, status, exit_code, started}]`
+  (under `_jobs_lock`). The SPA merges `/api/jobs` (in-flight) with `/api/runs` (completed
+  folders) to show running tests and reflect status as they finish.
 
-Existing POST actions kept; changed to respond with JSON `{ok, ...}` instead of an HTML
-redirect, so the SPA can act on the result without a full reload.
+Existing POST actions (`/delete/...`, `/delete-date/...`, rerun, run, terminate) **already
+return JSON** (e.g. `/delete/` → `{deleted, logs_cleared}`). Audit each for a consistent
+shape the SPA can consume — do **not** rewrite ones that already work.
 
 ### Component 3 — SPA (new `static/` dir, served by `report_server.py`)
 
@@ -72,7 +85,8 @@ redirect, so the SPA can act on the result without a full reload.
 - `static/styles.css` — imports/reuses `THEME_CSS` palette; card-based layout, responsive grid.
 - `static/app.js` — single Alpine component:
   - On load + every ~3s: `fetch('/api/runs', {headers: {'If-None-Match': lastEtag}})`;
-    on 304 do nothing, on 200 store data + etag. Periodically refresh `/api/metrics`.
+    on 304 do nothing, on 200 store data + etag. Also fetch `/api/jobs` each tick (cheap,
+    in-memory) and merge running jobs into the run list. Periodically refresh `/api/metrics`.
   - Sections:
     1. **Metrics bar** — cards: total runs, pass-rate % (large), fail count, flaky count.
     2. **Trend chart** — Chart.js: pass-rate line + runs/day bar over `metrics.trend`.
@@ -99,17 +113,20 @@ offline viewing. The SPA is **additive** — the static generator is refactored 
 ## Data flow
 
 ```
-report_run/ folders ──scan──> report_data.scan_runs() ──> RunEntry[]
+report_run/ folders ──scan(1 head read)──> report_data.scan_runs() ──> RunEntry[]
                                           │
                           ┌───────────────┼───────────────┐
                           ▼               ▼               ▼
                   compute_metrics()   /api/runs      aggregate_report.py
-                          │            /api/metrics   (static fallback)
+                          │       (ETag=names+mtime)  (static fallback)
                           ▼               │
-                     /api/metrics         ▼
-                          └────────> SPA (Alpine) ──poll ETag──> render
+                     /api/metrics         │
                                           │
-                                     POST actions ──> report_server handlers
+   _jobs dict (in-memory) ──> /api/jobs   │
+                                  │       │
+                                  └───────┴──> SPA (Alpine) ──poll──> merge+render
+                                                     │
+                                                POST actions ──> report_server handlers
 ```
 
 ## Error handling
@@ -131,12 +148,13 @@ report_run/ folders ──scan──> report_data.scan_runs() ──> RunEntry[]
 
 ## Phasing (→ implementation plan)
 
-1. `report_data.py` refactor + `compute_metrics` (trend, flaky) + `error_summary` + unit tests.
-2. JSON API endpoints (`/api/runs`, `/api/metrics`, `/api/catalog`) + ETag 304 + tests;
-   POST actions return JSON.
+1. `report_data.py` refactor + **single-head-read** for scan + `compute_metrics`
+   (trend, flaky) + `error_summary` + unit tests.
+2. JSON API endpoints (`/api/runs`, `/api/metrics`, `/api/catalog`, `/api/jobs`) +
+   **ETag = folder names + mtimes** + 304 + tests; audit POST-action JSON shapes.
 3. SPA shell: run list + filters at parity with current dashboard.
 4. Metrics bar + trend charts.
-5. Live polling + running-test reflection.
+5. Live polling + running-test reflection (merge `/api/jobs` + `/api/runs`).
 6. Triage: inline error snippets, failed-only toggle, deep links.
 
 ## Out of scope (YAGNI)
