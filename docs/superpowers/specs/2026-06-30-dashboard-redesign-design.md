@@ -14,7 +14,7 @@ triage, and live updates while tests run.
 | Dimension | Choice |
 |-----------|--------|
 | Architecture | JSON API (extend `report_server.py`) + SPA frontend |
-| Frontend stack | Zero-build: CDN micro-framework (Alpine.js) + Chart.js, single `index.html` |
+| Frontend stack | Zero-build: Alpine.js + Chart.js **vendored** into `static/` (not CDN — test rigs are often offline/LAN), single `index.html` |
 | Live updates | Polling `/api/runs` with existing ETag (304 = skip re-render) |
 | Theme | Reuse `report_theme.THEME_CSS` dark palette |
 | Build step | None — preserves Python-only repo + git-pull self-update model |
@@ -28,9 +28,17 @@ triage, and live updates while tests run.
   CSS/JS. Already has: text search, status filter pills, device summary, suite catalog.
 - `report_server.py` — `ThreadingHTTPServer` over `REPORT_ROOT`; POST actions
   (delete, delete-date, rerun, rerun-terminate, run, run-all); computes ETags.
+  **Already has** two GET routes this design builds on:
+  - `GET /api/runs` — today a **change-detection stub**: returns `{}`, sets ETag from
+    folder names only. Current model = "ETag flips → static `report.html` reloads the whole
+    page." This design *changes its behavior* to return a real payload (below).
+  - `GET /rerun-status/<job_id>` — already polls a single job, returns
+    `{status, new_folder, exit_code}`, and **reaps exited procs**. Per-job live status is
+    already solved; the SPA reuses this.
+  - Running jobs tracked in in-memory `_jobs` dict, guarded by `_jobs_lock`.
 
 What's missing: aggregate stats, pass-rate %, trend charts, flakiness, inline error
-snippets, live refresh.
+snippets, live refresh, and a *list* view of all running jobs.
 
 ## Architecture
 
@@ -59,21 +67,28 @@ generator consume one source of truth.
 
 ### Component 2 — JSON API (extend `report_server.py`)
 
-New GET endpoints (return `application/json`):
+GET endpoints (return `application/json`). Tagged by whether they're **modified**, **reused**,
+or **new** — most of the live-update machinery already exists.
 
-- `GET /api/runs` — serialized `RunEntry` list; sets `ETag` header.
+- **[modify] `GET /api/runs`** — currently a change-detection stub returning `{}`. Change it
+  to return the serialized `RunEntry` list. Keep the ETag.
   **ETag must fold in folder mtimes, not just names.** Current `_compute_etag` hashes the
   sorted folder-name list only; a running test's folder name never changes, so a
   name-only ETag returns `304` and the SPA never sees in-progress status flips. Extend the
-  ETag input to include each folder's `mtime` (and `/api/jobs` state hash) so live changes
-  bust the cache. Returns `304 Not Modified` when `If-None-Match` matches.
-- `GET /api/metrics` — serialized `compute_metrics` output.
-- `GET /api/catalog` — suites/tests via existing `scan_catalog` (move to `report_data.py`).
-- `GET /api/jobs` — **new, required for live updates.** Running-test state lives in the
-  in-memory `_jobs` dict in `report_server.py`, *separate from folders* — `scan_runs` cannot
-  see it. Expose `_jobs` as JSON: `[{job_id, suite, stem, status, exit_code, started}]`
-  (under `_jobs_lock`). The SPA merges `/api/jobs` (in-flight) with `/api/runs` (completed
-  folders) to show running tests and reflect status as they finish.
+  ETag input to include each folder's `mtime` so live changes bust the cache. Still returns
+  `304` on `If-None-Match` match. (Old static `report.html` keys on ETag and ignores the
+  body, so adding a payload won't break it.)
+- **[new] `GET /api/metrics`** — serialized `compute_metrics` output.
+- **[new] `GET /api/catalog`** — suites/tests via existing `scan_catalog` (move to `report_data.py`).
+- **[reuse] `GET /rerun-status/<job_id>`** — already returns `{status, new_folder, exit_code}`
+  and reaps exited procs. SPA uses it for single-job live status after a rerun/run. No change.
+- **[new] `GET /api/jobs`** — *list* view of all running jobs (the one genuinely new route).
+  `_jobs` holds non-serializable `proc` + `log_file`, so the handler must:
+  1. hold `_jobs_lock` for the read,
+  2. **reap exited procs on read** (poll `proc`, flip `running`→`done`/`failed`), same as
+     `_find_running_job` / `/rerun-status` — else it reports stale `running`,
+  3. emit a **field whitelist** only: `[{job_id, suite, stem, status, exit_code, started}]`.
+  SPA merges `/api/jobs` (in-flight) with `/api/runs` (completed folders).
 
 Existing POST actions (`/delete/...`, `/delete-date/...`, rerun, run, terminate) **already
 return JSON** (e.g. `/delete/` → `{deleted, logs_cleared}`). Audit each for a consistent
@@ -81,12 +96,15 @@ shape the SPA can consume — do **not** rewrite ones that already work.
 
 ### Component 3 — SPA (new `static/` dir, served by `report_server.py`)
 
-- `static/index.html` — shell; loads Alpine.js + Chart.js from CDN, `app.js`, `styles.css`.
+- `static/index.html` — shell; loads **vendored** `static/vendor/alpine.min.js` +
+  `static/vendor/chart.min.js` (committed to repo, local `<script src>` — no CDN, works
+  offline on LAN test rigs), plus `app.js`, `styles.css`.
 - `static/styles.css` — imports/reuses `THEME_CSS` palette; card-based layout, responsive grid.
 - `static/app.js` — single Alpine component:
   - On load + every ~3s: `fetch('/api/runs', {headers: {'If-None-Match': lastEtag}})`;
     on 304 do nothing, on 200 store data + etag. Also fetch `/api/jobs` each tick (cheap,
-    in-memory) and merge running jobs into the run list. Periodically refresh `/api/metrics`.
+    in-memory) and merge running jobs into the run list. After a rerun/run POST, poll that
+    job via the existing `/rerun-status/<job_id>` until done. Periodically refresh `/api/metrics`.
   - Sections:
     1. **Metrics bar** — cards: total runs, pass-rate % (large), fail count, flaky count.
     2. **Trend chart** — Chart.js: pass-rate line + runs/day bar over `metrics.trend`.
@@ -136,6 +154,19 @@ report_run/ folders ──scan(1 head read)──> report_data.scan_runs() ─�
 - Malformed / partial run folders (missing `log.txt`) → status `UNKNOWN`, never crash scan
   (current behaviour preserved).
 - Poll failure (server down) → SPA shows "disconnected", retries next interval.
+- `error_summary` extraction reads a **bounded tail** of `airtest.log` (cap, e.g. last 8 KB)
+  — never slurp the whole file; logs can be large.
+
+## Performance budget (verifiable)
+
+| Metric | Target |
+|--------|--------|
+| Poll interval | ~3 s |
+| `/api/runs` 304 (unchanged) path | < 50 ms |
+| `/api/runs` 200 payload, ~500 runs | < 300 ms |
+| Initial dashboard render, ~500 runs | < 1 s |
+| Client-side filter / search | < 100 ms (no server round-trip) |
+| `/api/jobs` (in-memory) | < 20 ms |
 
 ## Testing
 
@@ -150,9 +181,11 @@ report_run/ folders ──scan(1 head read)──> report_data.scan_runs() ─�
 
 1. `report_data.py` refactor + **single-head-read** for scan + `compute_metrics`
    (trend, flaky) + `error_summary` + unit tests.
-2. JSON API endpoints (`/api/runs`, `/api/metrics`, `/api/catalog`, `/api/jobs`) +
-   **ETag = folder names + mtimes** + 304 + tests; audit POST-action JSON shapes.
-3. SPA shell: run list + filters at parity with current dashboard.
+2. JSON API: **modify** `/api/runs` (stub → payload, ETag = names + mtimes), **add**
+   `/api/metrics` + `/api/catalog` + `/api/jobs` (lock + reap-on-read + field whitelist),
+   **reuse** `/rerun-status`; 304 + tests; audit POST-action JSON shapes.
+3. Vendor Alpine + Chart.js into `static/vendor/`; SPA shell: run list + filters at parity
+   with current dashboard.
 4. Metrics bar + trend charts.
 5. Live polling + running-test reflection (merge `/api/jobs` + `/api/runs`).
 6. Triage: inline error snippets, failed-only toggle, deep links.
