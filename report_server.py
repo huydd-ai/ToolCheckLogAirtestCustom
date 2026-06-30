@@ -55,9 +55,10 @@ def _find_newest_folder(report_root: Path, stem: str) -> str | None:
     return max(candidates) if candidates else None
 
 
-def _compute_etag(folder_names: list[str]) -> str:
-    """Stable 16-char hex ETag from sorted folder name list."""
-    return hashlib.md5(",".join(sorted(folder_names)).encode()).hexdigest()[:16]
+def _compute_etag(folders_with_mtime: list[tuple[str, float]]) -> str:
+    """Stable 16-char hex ETag from sorted folder names and mtimes."""
+    s = ",".join(f"{f}:{m}" for f, m in sorted(folders_with_mtime))
+    return hashlib.md5(s.encode()).hexdigest()[:16]
 
 
 _jobs: dict[str, dict] = {}
@@ -133,7 +134,10 @@ class ReportHandler(SimpleHTTPRequestHandler):
         # Strip query string for route matching
         clean_path = path.split('?', 1)[0].split('#', 1)[0]
         if clean_path == "/":
-            path = path.replace("/", "/report.html", 1)
+            return str((Path(__file__).parent / "static" / "index.html").resolve())
+        if clean_path.startswith("/static/"):
+            rel = clean_path.removeprefix("/static/")
+            return str((Path(__file__).parent / "static" / rel).resolve())
         return super().translate_path(path)
 
     def do_POST(self):
@@ -365,27 +369,45 @@ class ReportHandler(SimpleHTTPRequestHandler):
         })
 
     def _handle_api_runs(self) -> None:
-        # Change-detection only: the client reads just status + ETag and reloads
-        # the page when the ETag changes, so we never build the run payload.
-        # ETag depends only on folder names, so skip reading every log.txt.
         try:
-            folder_names = [
-                child.name
-                for child in REPORT_ROOT.iterdir()
-                if child.is_dir()
-                and parse_run_folder_name(child.name) is not None
-                and (child / "log.txt").exists()
-            ]
-            etag = _compute_etag(folder_names)
+            from dagster.report_data import scan_runs
+            runs = scan_runs(REPORT_ROOT)
+            
+            folder_info = []
+            for r in runs:
+                log_path = REPORT_ROOT / r.folder / "log.txt"
+                mtime = log_path.stat().st_mtime if log_path.exists() else 0.0
+                folder_info.append((r.folder, mtime))
+                
+            etag = _compute_etag(folder_info)
             if self.headers.get("If-None-Match", "") == etag:
                 self.send_response(304)
                 self.end_headers()
                 return
+                
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.send_header("ETag", etag)
             self.end_headers()
-            self.wfile.write(b"{}")
+            payload = json.dumps([r.to_dict() for r in runs]).encode("utf-8")
+            self.wfile.write(payload)
+        except Exception as e:
+            self._json(500, {"error": str(e)})
+
+    def _handle_api_metrics(self) -> None:
+        try:
+            from dagster.report_data import scan_runs, compute_metrics
+            runs = scan_runs(REPORT_ROOT)
+            metrics = compute_metrics(runs)
+            self._json(200, metrics)
+        except Exception as e:
+            self._json(500, {"error": str(e)})
+
+    def _handle_api_catalog(self) -> None:
+        try:
+            from dagster.report_data import scan_catalog
+            catalog = scan_catalog(TEST_ROOT)
+            self._json(200, catalog)
         except Exception as e:
             self._json(500, {"error": str(e)})
 
@@ -399,13 +421,19 @@ class ReportHandler(SimpleHTTPRequestHandler):
         if clean == "/api/runs":
             self._handle_api_runs()
             return
+        if clean == "/api/metrics":
+            self._handle_api_metrics()
+            return
+        if clean == "/api/catalog":
+            self._handle_api_catalog()
+            return
         if clean.startswith("/rerun-logs/"):
             job_id = clean.removeprefix("/rerun-logs/")
             self._handle_rerun_logs(job_id)
             return
         # Rebuild on page load so newly-added Test/ cases show in the catalog
         # without a restart or write event. ponytail: cheap globs, fine per-load.
-        if clean in ("/", "/report.html"):
+        if clean == "/report.html":
             try:
                 regenerate_global_report(REPORT_ROOT)
             except Exception as e:

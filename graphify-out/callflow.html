@@ -1,0 +1,1480 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>dagster — Complete Call Flow &amp; Architecture Documentation</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<style>
+:root {
+  --bg: #0f172a; --surface: #1e293b; --border: #334155;
+  --text: #e2e8f0; --muted: #94a3b8; --accent: #38bdf8;
+  --warn: #fbbf24; --err: #f87171; --ok: #34d399;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--text); line-height: 1.7; }
+.container { max-width: 1200px; margin: 0 auto; padding: 40px 24px; }
+h1 { font-size: 2.4rem; margin-bottom: 8px; background: linear-gradient(135deg, var(--accent), #a78bfa); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+h2 { font-size: 1.7rem; margin: 48px 0 16px; padding-bottom: 8px; border-bottom: 2px solid var(--accent); }
+h3 { font-size: 1.25rem; margin: 32px 0 12px; color: var(--accent); }
+h4 { font-size: 1.05rem; margin: 20px 0 8px; color: var(--warn); }
+p { margin: 8px 0; color: var(--muted); }
+.subtitle { color: var(--muted); font-size: 1.1rem; margin-bottom: 32px; }
+.mermaid { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 24px; margin: 20px 0; overflow-x: auto; position: relative; }
+.mermaid.is-enhanced { padding: 0; overflow: hidden; min-height: 260px; }
+.mermaid-viewport { padding: 54px 24px 24px; overflow: hidden; cursor: grab; touch-action: none; min-height: 260px; }
+.mermaid-viewport.is-dragging { cursor: grabbing; }
+.mermaid-viewport svg { max-width: none !important; height: auto; transform-origin: 0 0; transition: transform 120ms ease; }
+.mermaid-toolbar { position: absolute; top: 10px; right: 10px; z-index: 3; display: flex; align-items: center; gap: 6px; padding: 6px; background: rgba(15,23,42,0.92); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,0.28); }
+.mermaid-toolbar button, .mermaid-toolbar .zoom-level { height: 28px; min-width: 32px; border: 1px solid var(--border); border-radius: 6px; background: #1e293b; color: var(--text); font: 600 0.78rem system-ui, sans-serif; display: inline-flex; align-items: center; justify-content: center; }
+.mermaid-toolbar button { cursor: pointer; }
+.mermaid-toolbar button:hover { border-color: var(--accent); color: var(--accent); }
+.mermaid-toolbar .zoom-level { min-width: 52px; color: var(--muted); background: transparent; }
+.call-table { width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 0.92rem; }
+.call-table th { background: #1a2744; color: var(--accent); text-align: left; padding: 10px 14px; border: 1px solid var(--border); }
+.call-table td { padding: 8px 14px; border: 1px solid var(--border); vertical-align: top; }
+.call-table tr:nth-child(even) { background: rgba(255,255,255,0.02); }
+.tag { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 0.8rem; font-weight: 600; }
+.tag-async { background: #7c3aed33; color: #a78bfa; }
+.tag-class { background: #05966933; color: var(--ok); }
+.tag-func { background: #2563eb33; color: var(--accent); }
+.tag-cmd { background: #d9770633; color: var(--warn); }
+.tag-endpoint { background: #dc262633; color: var(--err); }
+.tag-hook { background: #db277733; color: #f472b6; }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 20px; margin: 16px 0; }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 16px; margin: 16px 0; }
+.arrow-chain { font-family: 'Fira Code', monospace; font-size: 0.85rem; color: var(--accent); padding: 10px; background: rgba(56,189,248,0.06); border-radius: 6px; }
+code { font-family: 'Fira Code', 'Cascadia Code', monospace; background: rgba(255,255,255,0.06); padding: 1px 6px; border-radius: 3px; font-size: 0.88em; }
+ul, ol { margin: 8px 0 8px 24px; color: var(--muted); }
+li { margin: 4px 0; }
+a { color: var(--accent); }
+hr { border: none; border-top: 1px solid var(--border); margin: 40px 0; }
+.nav { position: sticky; top: 0; background: var(--bg); z-index: 10; padding: 12px 0; border-bottom: 1px solid var(--border); display: flex; gap: 20px; flex-wrap: wrap; font-size: 0.9rem; }
+.nav a { text-decoration: none; }
+.nav a:hover { text-decoration: underline; }
+@media (max-width: 768px) { .container { padding: 16px; } h1 { font-size: 1.8rem; } }
+
+</style>
+</head>
+<body>
+<div class="container">
+
+<h1>dagster — Complete Call Flow &amp; Architecture Documentation</h1>
+<p class="subtitle">Generated from graphify knowledge graph: 224 nodes, 414 edges, 12 communities. Commit: 9811039</p>
+
+<div class="nav">
+    <a href="#overview">Architecture Overview</a>
+    <a href="#outputs-docs">Outputs &amp; Docs</a>
+    <a href="#cli-skills">CLI &amp; Skill Installers</a>
+    <a href="#ingest-cache-update">Ingestion &amp; Updates</a>
+    <a href="#tests-fixtures">Tests &amp; Fixtures</a>
+    <a href="#scrcpyrecorderpy-scrcpyrecorder-start">Scrcpyrecorderpy Scrcpyrecorder Start</a>
+    <a href="#scrcpy-icon-win64">Scrcpy Icon Win64</a>
+</div>
+
+<!-- ====== Architecture Overview ====== -->
+<h2 id="overview">1. Architecture Overview</h2>
+
+<div class="mermaid">
+
+%%{init: {"theme": "dark", "themeVariables": {"fontSize": "15.0px", "fontFamily": "Segoe UI, system-ui, sans-serif", "primaryColor": "#1e293b", "primaryTextColor": "#e2e8f0", "primaryBorderColor": "#38bdf8", "secondaryColor": "#0f172a", "tertiaryColor": "#334155", "lineColor": "#64748b", "textColor": "#e2e8f0"}, "flowchart": {"htmlLabels": true, "curve": "basis", "nodeSpacing": 48, "rankSpacing": 64, "padding": 14, "diagramPadding": 10, "useMaxWidth": true}}}%%
+flowchart LR
+    OUTPUTS_DOCS_ED82387C("Outputs &amp; Docs<br/><small>82 nodes</small>")
+    class OUTPUTS_DOCS_ED82387C module;
+    CLI_SKILLS_9964CBB8("CLI &amp; Skill Installers<br/><small>2 nodes</small>")
+    class CLI_SKILLS_9964CBB8 module;
+    INGEST_CACHE_UPDATE_FF457338("Ingestion &amp; Updates<br/><small>13 nodes</small>")
+    class INGEST_CACHE_UPDATE_FF457338 module;
+    TESTS_FIXTURES_B84B1DCC("Tests &amp; Fixtures<br/><small>119 nodes</small>")
+    class TESTS_FIXTURES_B84B1DCC module;
+    SCRCPYRECORDERPY_SCRCPYRECORDER_START_BF9314E3("Scrcpyrecorderpy Scrcpyrecorder Start<br/><small>7 nodes</small>")
+    class SCRCPYRECORDERPY_SCRCPYRECORDER_START_BF9314E3 module;
+    SCRCPY_ICON_WIN64_B27718AB("Scrcpy Icon Win64<br/><small>1 nodes</small>")
+    class SCRCPY_ICON_WIN64_B27718AB module;
+    OUTPUTS_DOCS_ED82387C -->|imports| TESTS_FIXTURES_B84B1DCC
+    classDef entry fill:#422006,stroke:#fbbf24,color:#fde68a,stroke-width:1px;
+    classDef api fill:#450a0a,stroke:#f87171,color:#fee2e2,stroke-width:1px;
+    classDef async fill:#2e1065,stroke:#a78bfa,color:#ede9fe,stroke-width:1px;
+    classDef klass fill:#064e3b,stroke:#34d399,color:#d1fae5,stroke-width:1px;
+    classDef ui fill:#831843,stroke:#f472b6,color:#fce7f3,stroke-width:1px;
+    classDef module fill:#172554,stroke:#60a5fa,color:#dbeafe,stroke-width:1px;
+    classDef test fill:#3f3f46,stroke:#a1a1aa,color:#f4f4f5,stroke-width:1px;
+    classDef concept fill:#292524,stroke:#a8a29e,color:#fafaf9,stroke-dasharray:4 3;
+    classDef function fill:#0f172a,stroke:#38bdf8,color:#e0f2fe,stroke-width:1px;
+</div>
+
+<div class="grid">
+  <div class="card">
+    <h4>Architecture Layers</h4>
+    <table style="width:100%;font-size:0.85rem;">
+      <tr><th>Layer</th><th>Nodes</th><th>Communities</th></tr>
+      <tr><td>Outputs &amp; Docs</td><td>82</td><td><code>0, 3, 8</code></td></tr><tr><td>CLI &amp; Skill Installers</td><td>2</td><td><code>10</code></td></tr><tr><td>Ingestion &amp; Updates</td><td>13</td><td><code>7</code></td></tr><tr><td>Tests &amp; Fixtures</td><td>119</td><td><code>1, 2, 4, 5, 6</code></td></tr><tr><td>Scrcpyrecorderpy Scrcpyrecorder Start</td><td>7</td><td><code>9</code></td></tr><tr><td>Scrcpy Icon Win64</td><td>1</td><td><code>11</code></td></tr>
+    </table>
+  </div>
+  <div class="card">
+    <h4>Core Flow</h4>
+    <div class="arrow-chain">Outputs &amp; Docs -&gt; Tests &amp; Fixtures -&gt; CLI &amp; Skill Installers -&gt; Ingestion &amp; Updates -&gt; Scrcpyrecorderpy Scrcpyrecorder Start -&gt; Scrcpy Icon Win64</div>
+  </div>
+</div>
+<div class="grid">
+  <div class="card">
+    <h4>Graph Report Highlights</h4>
+    <ul>
+      <li>224 nodes · 414 edges · 12 communities (9 shown, 3 thin omitted)</li>
+      <li>Extraction: 74% EXTRACTED · 26% INFERRED · 0% AMBIGUOUS · INFERRED: 107 edges (avg confidence: 0.8)</li>
+      <li>Token cost: 0 input · 0 output</li>
+      <li>1. `generate_summary_report()` - 22 edges</li>
+      <li>2. `group_by_date()` - 14 edges</li>
+      <li>3. `render_html()` - 14 edges</li>
+    </ul>
+  </div>
+</div>
+<hr>
+<!-- ====== 2. Outputs & Docs ====== -->
+<h2 id="outputs-docs">2. Outputs &amp; Docs</h2>
+<p>Outputs &amp; Docs groups implementation around test, aggregate, reportpy, step, mostly in test_aggregate_report.py, aggregate_report.py, step_capture.py. This section covers 82 nodes and 155 internal edges; the diagram shows only representative relationships to stay readable.</p>
+
+<div class="mermaid">
+%%{init: {"theme": "dark", "themeVariables": {"fontSize": "15.0px", "fontFamily": "Segoe UI, system-ui, sans-serif", "primaryColor": "#1e293b", "primaryTextColor": "#e2e8f0", "primaryBorderColor": "#38bdf8", "secondaryColor": "#0f172a", "tertiaryColor": "#334155", "lineColor": "#64748b", "textColor": "#e2e8f0"}, "flowchart": {"htmlLabels": true, "curve": "basis", "nodeSpacing": 48, "rankSpacing": 64, "padding": 14, "diagramPadding": 10, "useMaxWidth": true}}}%%
+flowchart LR
+    %% Section: Outputs &amp; Docs (82 nodes, 155 edges)
+    subgraph outputs_docs_aggregate_report_py_c49fbb48["aggregate_report.py"]
+        dagster_aggregate_report_extract_status_03c7aeb6("extract_status()<br/><small>aggregate_report.py</small>")
+        dagster_aggregate_report_group_by_date_9d5b2e69("group_by_date()<br/><small>aggregate_report.py</small>")
+        dagster_aggregate_report_parse_run_folder_name_874c5716("parse_run_folder_name()<br/><small>aggregate_report.py</small>")
+        dagster_aggregate_report_scan_runs_e1392965("scan_runs()<br/><small>aggregate_report.py</small>")
+        dagster_aggregate_report_runentry_e3822bc8("RunEntry<br/><small>aggregate_report.py</small>")
+        dagster_aggregate_report_regenerate_global_repor_f4a62926("regenerate_global_report()<br/><small>aggregate_report.py</small>")
+        dagster_aggregate_report_summary_stats_html_cbb85055("_summary_stats_html()<br/><small>aggregate_report.py</small>")
+        dagster_aggregate_report_render_html_b46880da("render_html()<br/><small>aggregate_report.py</small>")
+        dagster_aggregate_report_write_assets_d70b14f1("write_assets()<br/><small>aggregate_report.py</small>")
+    end
+    subgraph outputs_docs_report_server_py_a13611bd["report_server.py"]
+        dagster_report_server_reporthandler_d8a79bb3("ReportHandler<br/><small>report_server.py</small>")
+        dagster_report_server_reporthandler_init_0ca414bc("__init__()<br/><small>report_server.py</small>")
+        dagster_report_server_reporthandler_do_post_c00925e0("do_POST()<br/><small>report_server.py</small>")
+        dagster_report_server_reporthandler_log_message_74c42891("log_message()<br/><small>report_server.py</small>")
+    end
+    subgraph outputs_docs_test_aggregate_report_py_b3892bc7["test_aggregate_report.py"]
+        dagster_test_aggregate_report_entry_14f6ef35("_entry()<br/><small>test_aggregate_report.py</small>")
+        dagster_test_aggregate_report_make_run_5f44db47("_make_run()<br/><small>test_aggregate_report.py</small>")
+        dagster_test_aggregate_report_write_6f52c350("_write()<br/><small>test_aggregate_report.py</small>")
+    end
+    subgraph outputs_docs_step_capture_py_44eeadf0["step_capture.py"]
+        dagster_step_capture_latest_screenshot_beb46887("_latest_screenshot()<br/><small>step_capture.py</small>")
+        dagster_step_capture_hooked_run_step_cab4ba15("_hooked_run_step()<br/><small>step_capture.py</small>")
+    end
+    dagster_aggregate_report_parse_run_folder_name_874c5716 -->|calls| dagster_aggregate_report_scan_runs_e1392965
+    dagster_aggregate_report_extract_status_03c7aeb6 -->|calls| dagster_aggregate_report_scan_runs_e1392965
+    dagster_aggregate_report_runentry_e3822bc8 -->|calls| dagster_aggregate_report_scan_runs_e1392965
+    dagster_aggregate_report_scan_runs_e1392965 -->|calls| dagster_aggregate_report_regenerate_global_repor_f4a62926
+    dagster_aggregate_report_group_by_date_9d5b2e69 -->|calls| dagster_aggregate_report_regenerate_global_repor_f4a62926
+    dagster_aggregate_report_summary_stats_html_cbb85055 -->|calls| dagster_aggregate_report_render_html_b46880da
+    dagster_aggregate_report_render_html_b46880da -->|calls| dagster_aggregate_report_regenerate_global_repor_f4a62926
+    dagster_aggregate_report_write_assets_d70b14f1 -->|calls| dagster_aggregate_report_regenerate_global_repor_f4a62926
+    dagster_report_server_reporthandler_d8a79bb3 -->|method| dagster_report_server_reporthandler_init_0ca414bc
+    dagster_report_server_reporthandler_d8a79bb3 -->|method| dagster_report_server_reporthandler_do_post_c00925e0
+    dagster_report_server_reporthandler_d8a79bb3 -->|method| dagster_report_server_reporthandler_log_message_74c42891
+    dagster_step_capture_latest_screenshot_beb46887 -->|calls| dagster_step_capture_hooked_run_step_cab4ba15
+    %% Omitted for readability: 64 nodes, 0 edges
+    class dagster_aggregate_report_extract_status_03c7aeb6 function;
+    class dagster_aggregate_report_group_by_date_9d5b2e69 function;
+    class dagster_aggregate_report_parse_run_folder_name_874c5716 function;
+    class dagster_aggregate_report_scan_runs_e1392965 function;
+    class dagster_aggregate_report_runentry_e3822bc8 klass;
+    class dagster_aggregate_report_regenerate_global_repor_f4a62926 function;
+    class dagster_aggregate_report_summary_stats_html_cbb85055 function;
+    class dagster_aggregate_report_render_html_b46880da function;
+    class dagster_aggregate_report_write_assets_d70b14f1 async;
+    class dagster_report_server_reporthandler_d8a79bb3 klass;
+    class dagster_report_server_reporthandler_init_0ca414bc function;
+    class dagster_report_server_reporthandler_do_post_c00925e0 function;
+    class dagster_report_server_reporthandler_log_message_74c42891 function;
+    class dagster_test_aggregate_report_entry_14f6ef35 test;
+    class dagster_test_aggregate_report_make_run_5f44db47 test;
+    class dagster_test_aggregate_report_write_6f52c350 test;
+    class dagster_step_capture_latest_screenshot_beb46887 function;
+    class dagster_step_capture_hooked_run_step_cab4ba15 ui;
+    classDef entry fill:#422006,stroke:#fbbf24,color:#fde68a,stroke-width:1px;
+    classDef api fill:#450a0a,stroke:#f87171,color:#fee2e2,stroke-width:1px;
+    classDef async fill:#2e1065,stroke:#a78bfa,color:#ede9fe,stroke-width:1px;
+    classDef klass fill:#064e3b,stroke:#34d399,color:#d1fae5,stroke-width:1px;
+    classDef ui fill:#831843,stroke:#f472b6,color:#fce7f3,stroke-width:1px;
+    classDef module fill:#172554,stroke:#60a5fa,color:#dbeafe,stroke-width:1px;
+    classDef test fill:#3f3f46,stroke:#a1a1aa,color:#f4f4f5,stroke-width:1px;
+    classDef concept fill:#292524,stroke:#a8a29e,color:#fafaf9,stroke-dasharray:4 3;
+    classDef function fill:#0f172a,stroke:#38bdf8,color:#e0f2fe,stroke-width:1px;
+</div>
+
+<h3>Call Details</h3>
+<table class="call-table">
+<tr>
+  <th style="width:5%">#</th>
+  <th style="width:28%">Node</th>
+  <th style="width:10%">Type</th>
+  <th style="width:17%">Caller</th>
+  <th style="width:20%">Callees</th>
+  <th style="width:20%">Description</th>
+</tr>
+<tr>
+  <td>1</td>
+  <td><code>aggregate_report.py</code><br><small style="color:var(--muted)">aggregate_report.py</small></td>
+  <td><span class="tag tag-class">Module</span></td>
+  <td>External entry / no inbound edge</td>
+  <td>No direct outbound edge</td>
+  <td>Module file in aggregate_report.py.</td>
+</tr>
+<tr>
+  <td>2</td>
+  <td><code>parse_run_folder_name()</code><br><small style="color:var(--muted)">aggregate_report.py</small></td>
+  <td><span class="tag tag-func">Function</span></td>
+  <td>External entry / no inbound edge</td>
+  <td><code>matching returns none()</code><br><small style="color:var(--muted)">test_aggregate_report.py</small><br><code>scan_runs()</code><br><small style="color:var(--muted)">aggregate_report.py</small><br><code>stem with underscores()</code><br><small style="color:var(--muted)">test_aggregate_report.py</small><br>+1 more</td>
+  <td>parse_run_folder_name() node in aggregate_report.py.</td>
+</tr>
+<tr>
+  <td>3</td>
+  <td><code>extract_status()</code><br><small style="color:var(--muted)">aggregate_report.py</small></td>
+  <td><span class="tag tag-func">Function</span></td>
+  <td>External entry / no inbound edge</td>
+  <td><code>missing returns unknown()</code><br><small style="color:var(--muted)">test_aggregate_report.py</small><br><code>scan_runs()</code><br><small style="color:var(--muted)">aggregate_report.py</small><br><code>status file absent()</code><br><small style="color:var(--muted)">test_aggregate_report.py</small><br>+3 more</td>
+  <td>extract_status() node in aggregate_report.py.</td>
+</tr>
+<tr>
+  <td>4</td>
+  <td><code>RunEntry</code><br><small style="color:var(--muted)">aggregate_report.py</small></td>
+  <td><span class="tag tag-class">Class</span></td>
+  <td>External entry / no inbound edge</td>
+  <td><code>_entry()</code><br><small style="color:var(--muted)">test_aggregate_report.py</small><br><code>scan_runs()</code><br><small style="color:var(--muted)">aggregate_report.py</small></td>
+  <td>RunEntry node in aggregate_report.py.</td>
+</tr>
+<tr>
+  <td>5</td>
+  <td><code>scan_runs()</code><br><small style="color:var(--muted)">aggregate_report.py</small></td>
+  <td><span class="tag tag-func">Function</span></td>
+  <td><code>extract_status()</code><br><small style="color:var(--muted)">aggregate_report.py</small><br><code>parse_run_folder_name()</code><br><small style="color:var(--muted)">aggregate_report.py</small><br><code>RunEntry</code><br><small style="color:var(--muted)">aggregate_report.py</small></td>
+  <td><code>finds matching folders()</code><br><small style="color:var(--muted)">test_aggregate_report.py</small><br><code>progress without status()</code><br><small style="color:var(--muted)">test_aggregate_report.py</small><br><code>regenerate_global_report()</code><br><small style="color:var(--muted)">aggregate_report.py</small><br>+3 more</td>
+  <td>Starts scanning or handles scan status.</td>
+</tr>
+<tr>
+  <td>6</td>
+  <td><code>group_by_date()</code><br><small style="color:var(--muted)">aggregate_report.py</small></td>
+  <td><span class="tag tag-func">Function</span></td>
+  <td>External entry / no inbound edge</td>
+  <td><code>dates sorted descending()</code><br><small style="color:var(--muted)">test_aggregate_report.py</small><br><code>delete all button()</code><br><small style="color:var(--muted)">test_aggregate_report.py</small><br><code>has delete button()</code><br><small style="color:var(--muted)">test_aggregate_report.py</small><br>+9 more</td>
+  <td>group_by_date() node in aggregate_report.py.</td>
+</tr>
+<tr>
+  <td>7</td>
+  <td><code>_summary_stats_html()</code><br><small style="color:var(--muted)">aggregate_report.py</small></td>
+  <td><span class="tag tag-func">Function</span></td>
+  <td>External entry / no inbound edge</td>
+  <td><code>render_html()</code><br><small style="color:var(--muted)">aggregate_report.py</small></td>
+  <td>Exports documentation data to a target format.</td>
+</tr>
+<tr>
+  <td>8</td>
+  <td><code>render_html()</code><br><small style="color:var(--muted)">aggregate_report.py</small></td>
+  <td><span class="tag tag-func">Function</span></td>
+  <td><code>_summary_stats_html()</code><br><small style="color:var(--muted)">aggregate_report.py</small></td>
+  <td><code>delete all button()</code><br><small style="color:var(--muted)">test_aggregate_report.py</small><br><code>doctype and title()</code><br><small style="color:var(--muted)">test_aggregate_report.py</small><br><code>has delete button()</code><br><small style="color:var(--muted)">test_aggregate_report.py</small><br>+9 more</td>
+  <td>Exports documentation data to a target format.</td>
+</tr>
+<tr>
+  <td>9</td>
+  <td><code>write_assets()</code><br><small style="color:var(--muted)">aggregate_report.py</small></td>
+  <td><span class="tag tag-async">Async</span></td>
+  <td>External entry / no inbound edge</td>
+  <td><code>regenerate_global_report()</code><br><small style="color:var(--muted)">aggregate_report.py</small><br><code>write assets standalone()</code><br><small style="color:var(--muted)">test_aggregate_report.py</small></td>
+  <td>write_assets() node in aggregate_report.py.</td>
+</tr>
+<tr>
+  <td>10</td>
+  <td><code>regenerate_global_report()</code><br><small style="color:var(--muted)">aggregate_report.py</small></td>
+  <td><span class="tag tag-func">Function</span></td>
+  <td><code>group_by_date()</code><br><small style="color:var(--muted)">aggregate_report.py</small><br><code>render_html()</code><br><small style="color:var(--muted)">aggregate_report.py</small><br><code>scan_runs()</code><br><small style="color:var(--muted)">aggregate_report.py</small><br>+1 more</td>
+  <td><code>main()</code><br><small style="color:var(--muted)">dagster_run.py</small><br><code>regenerate overwrites existing()</code><br><small style="color:var(--muted)">test_aggregate_report.py</small><br><code>regenerate writes assets()</code><br><small style="color:var(--muted)">test_aggregate_report.py</small><br>+3 more</td>
+  <td>regenerate_global_report() node in aggregate_report.py.</td>
+</tr>
+<tr>
+  <td>11</td>
+  <td><code>Aggregate per-run report folders into a single global report.html.</code><br><small style="color:var(--muted)">aggregate_report.py</small></td>
+  <td><span class="tag tag-func">Concept</span></td>
+  <td>External entry / no inbound edge</td>
+  <td>No direct outbound edge</td>
+  <td>Design note for Aggregate per-run report folders into a single global report.html..</td>
+</tr>
+<tr>
+  <td>12</td>
+  <td><code>Parse a run folder name `&lt;stem&gt;_YYYYMMDD_HHMMSS` -&gt; (stem, datetime).      Retur</code><br><small style="color:var(--muted)">aggregate_report.py</small></td>
+  <td><span class="tag tag-func">Concept</span></td>
+  <td>External entry / no inbound edge</td>
+  <td>No direct outbound edge</td>
+  <td>Design note for Parse a run folder name `&lt;stem&gt;_YYYYMMDD_HHMMSS` -&gt; (stem, datetime).      Retur.</td>
+</tr>
+<tr>
+  <td>13</td>
+  <td><code>Return PASS/FAIL/SKIP from a run&#x27;s `log.txt`, or UNKNOWN if missing.      Reads</code><br><small style="color:var(--muted)">aggregate_report.py</small></td>
+  <td><span class="tag tag-func">Concept</span></td>
+  <td>External entry / no inbound edge</td>
+  <td>No direct outbound edge</td>
+  <td>Design note for Return PASS/FAIL/SKIP from a run&#x27;s `log.txt`, or UNKNOWN if missing.      Reads.</td>
+</tr>
+<tr>
+  <td>14</td>
+  <td><code>Find run folders under `report_root` that have a finished `log.txt`.      In-pro</code><br><small style="color:var(--muted)">aggregate_report.py</small></td>
+  <td><span class="tag tag-func">Concept</span></td>
+  <td>External entry / no inbound edge</td>
+  <td>No direct outbound edge</td>
+  <td>Design note for Find run folders under `report_root` that have a finished `log.txt`.      In-pro.</td>
+</tr>
+<tr>
+  <td>15</td>
+  <td><code>Group entries by ISO date string (YYYY-MM-DD).      Outer list ordered by date D</code><br><small style="color:var(--muted)">aggregate_report.py</small></td>
+  <td><span class="tag tag-func">Concept</span></td>
+  <td>External entry / no inbound edge</td>
+  <td>No direct outbound edge</td>
+  <td>Design note for Group entries by ISO date string (YYYY-MM-DD).      Outer list ordered by date D.</td>
+</tr>
+<tr>
+  <td>16</td>
+  <td><code>Write `style.css` and `script.js` next to `report.html`.</code><br><small style="color:var(--muted)">aggregate_report.py</small></td>
+  <td><span class="tag tag-func">Concept</span></td>
+  <td>External entry / no inbound edge</td>
+  <td>No direct outbound edge</td>
+  <td>Design note for Write `style.css` and `script.js` next to `report.html`..</td>
+</tr>
+<tr>
+  <td>17</td>
+  <td><code>Scan `report_root` for test runs and (re)write `report_root/report.html`.      A</code><br><small style="color:var(--muted)">aggregate_report.py</small></td>
+  <td><span class="tag tag-func">Concept</span></td>
+  <td>External entry / no inbound edge</td>
+  <td>No direct outbound edge</td>
+  <td>Design note for Scan `report_root` for test runs and (re)write `report_root/report.html`.      A.</td>
+</tr>
+<tr>
+  <td>18</td>
+  <td><code>test_aggregate_report.py</code><br><small style="color:var(--muted)">test_aggregate_report.py</small></td>
+  <td><span class="tag tag-func">Test</span></td>
+  <td>External entry / no inbound edge</td>
+  <td>No direct outbound edge</td>
+  <td>Module file in test_aggregate_report.py.</td>
+</tr>
+<tr>
+  <td>19</td>
+  <td><code>test_parse_simple_stem()</code><br><small style="color:var(--muted)">test_aggregate_report.py</small></td>
+  <td><span class="tag tag-func">Test</span></td>
+  <td><code>parse_run_folder_name()</code><br><small style="color:var(--muted)">aggregate_report.py</small></td>
+  <td>No direct outbound edge</td>
+  <td>Verifies imports, entry points, or version behavior.</td>
+</tr>
+<tr>
+  <td>20</td>
+  <td><code>test_parse_stem_with_underscores()</code><br><small style="color:var(--muted)">test_aggregate_report.py</small></td>
+  <td><span class="tag tag-func">Test</span></td>
+  <td><code>parse_run_folder_name()</code><br><small style="color:var(--muted)">aggregate_report.py</small></td>
+  <td>No direct outbound edge</td>
+  <td>Verifies imports, entry points, or version behavior.</td>
+</tr>
+<tr>
+  <td>21</td>
+  <td><code>test_parse_non_matching_returns_none()</code><br><small style="color:var(--muted)">test_aggregate_report.py</small></td>
+  <td><span class="tag tag-func">Test</span></td>
+  <td><code>parse_run_folder_name()</code><br><small style="color:var(--muted)">aggregate_report.py</small></td>
+  <td>No direct outbound edge</td>
+  <td>Verifies imports, entry points, or version behavior.</td>
+</tr>
+<tr>
+  <td>22</td>
+  <td><code>_write()</code><br><small style="color:var(--muted)">test_aggregate_report.py</small></td>
+  <td><span class="tag tag-func">Test</span></td>
+  <td>External entry / no inbound edge</td>
+  <td><code>missing returns unknown()</code><br><small style="color:var(--muted)">test_aggregate_report.py</small><br><code>test_extract_status_fail()</code><br><small style="color:var(--muted)">test_aggregate_report.py</small><br><code>test_extract_status_pass()</code><br><small style="color:var(--muted)">test_aggregate_report.py</small><br>+1 more</td>
+  <td>_write() node in test_aggregate_report.py.</td>
+</tr>
+<tr>
+  <td>23</td>
+  <td><code>test_extract_status_pass()</code><br><small style="color:var(--muted)">test_aggregate_report.py</small></td>
+  <td><span class="tag tag-func">Test</span></td>
+  <td><code>_write()</code><br><small style="color:var(--muted)">test_aggregate_report.py</small><br><code>extract_status()</code><br><small style="color:var(--muted)">aggregate_report.py</small></td>
+  <td>No direct outbound edge</td>
+  <td>Verifies imports, entry points, or version behavior.</td>
+</tr>
+<tr>
+  <td>24</td>
+  <td><code>test_extract_status_fail()</code><br><small style="color:var(--muted)">test_aggregate_report.py</small></td>
+  <td><span class="tag tag-func">Test</span></td>
+  <td><code>_write()</code><br><small style="color:var(--muted)">test_aggregate_report.py</small><br><code>extract_status()</code><br><small style="color:var(--muted)">aggregate_report.py</small></td>
+  <td>No direct outbound edge</td>
+  <td>Verifies imports, entry points, or version behavior.</td>
+</tr>
+<tr>
+  <td>25</td>
+  <td><code>test_extract_status_skip()</code><br><small style="color:var(--muted)">test_aggregate_report.py</small></td>
+  <td><span class="tag tag-func">Test</span></td>
+  <td><code>_write()</code><br><small style="color:var(--muted)">test_aggregate_report.py</small><br><code>extract_status()</code><br><small style="color:var(--muted)">aggregate_report.py</small></td>
+  <td>No direct outbound edge</td>
+  <td>Verifies imports, entry points, or version behavior.</td>
+</tr>
+<tr>
+  <td>26</td>
+  <td><code>test_extract_status_missing_returns_unknown()</code><br><small style="color:var(--muted)">test_aggregate_report.py</small></td>
+  <td><span class="tag tag-func">Test</span></td>
+  <td><code>_write()</code><br><small style="color:var(--muted)">test_aggregate_report.py</small><br><code>extract_status()</code><br><small style="color:var(--muted)">aggregate_report.py</small></td>
+  <td>No direct outbound edge</td>
+  <td>Verifies imports, entry points, or version behavior.</td>
+</tr>
+<tr>
+  <td>27</td>
+  <td><code>test_extract_status_file_absent()</code><br><small style="color:var(--muted)">test_aggregate_report.py</small></td>
+  <td><span class="tag tag-func">Test</span></td>
+  <td><code>extract_status()</code><br><small style="color:var(--muted)">aggregate_report.py</small></td>
+  <td>No direct outbound edge</td>
+  <td>Verifies imports, entry points, or version behavior.</td>
+</tr>
+<tr>
+  <td>28</td>
+  <td><code>_make_run()</code><br><small style="color:var(--muted)">test_aggregate_report.py</small></td>
+  <td><span class="tag tag-func">Test</span></td>
+  <td>External entry / no inbound edge</td>
+  <td><code>finds matching folders()</code><br><small style="color:var(--muted)">test_aggregate_report.py</small><br><code>progress without status()</code><br><small style="color:var(--muted)">test_aggregate_report.py</small><br><code>regenerate overwrites existing()</code><br><small style="color:var(--muted)">test_aggregate_report.py</small><br>+4 more</td>
+  <td>_make_run() node in test_aggregate_report.py.</td>
+</tr>
+<tr>
+  <td>29</td>
+  <td><code>test_scan_runs_finds_matching_folders()</code><br><small style="color:var(--muted)">test_aggregate_report.py</small></td>
+  <td><span class="tag tag-func">Test</span></td>
+  <td><code>_make_run()</code><br><small style="color:var(--muted)">test_aggregate_report.py</small><br><code>scan_runs()</code><br><small style="color:var(--muted)">aggregate_report.py</small></td>
+  <td>No direct outbound edge</td>
+  <td>Starts scanning or handles scan status.</td>
+</tr>
+<tr>
+  <td>30</td>
+  <td><code>test_scan_runs_skips_non_matching()</code><br><small style="color:var(--muted)">test_aggregate_report.py</small></td>
+  <td><span class="tag tag-func">Test</span></td>
+  <td><code>_make_run()</code><br><small style="color:var(--muted)">test_aggregate_report.py</small><br><code>scan_runs()</code><br><small style="color:var(--muted)">aggregate_report.py</small></td>
+  <td>No direct outbound edge</td>
+  <td>Starts scanning or handles scan status.</td>
+</tr>
+</table>
+
+<div class="grid">
+  <div class="card">
+    <h4>Key Files</h4>
+    <table style="width:100%;font-size:0.85rem;">
+      <tr><th>File</th><th>Coverage</th></tr>
+      <tr><td><code>test_aggregate_report.py</code></td><td>37 nodes</td></tr>
+<tr><td><code>aggregate_report.py</code></td><td>17 nodes</td></tr>
+<tr><td><code>step_capture.py</code></td><td>12 nodes</td></tr>
+<tr><td><code>report_server.py</code></td><td>7 nodes</td></tr>
+<tr><td><code>log_utils.py</code></td><td>3 nodes</td></tr>
+<tr><td><code>runner.py</code></td><td>3 nodes</td></tr>
+<tr><td><code>dagster_run.py</code></td><td>2 nodes</td></tr>
+    </table>
+  </div>
+  <div class="card">
+    <h4>Design Notes</h4>
+    <p>This section comes from graphify community clustering. Relationship summary: contains x57, calls x32, explains x14, method x3. The diagram prioritizes high-confidence calls or usage relationships; the table keeps the broader node inventory.</p>
+  </div>
+</div>
+<hr>
+
+<!-- ====== 3. CLI & Skill Installers ====== -->
+<h2 id="cli-skills">3. CLI &amp; Skill Installers</h2>
+<p>CLI &amp; Skill Installers groups implementation around claude, code, guidance, claudemd, mostly in CLAUDE.md, README.md. This section covers 2 nodes and 1 internal edges; the diagram shows only representative relationships to stay readable.</p>
+
+<div class="mermaid">
+%%{init: {"theme": "dark", "themeVariables": {"fontSize": "15.0px", "fontFamily": "Segoe UI, system-ui, sans-serif", "primaryColor": "#1e293b", "primaryTextColor": "#e2e8f0", "primaryBorderColor": "#38bdf8", "secondaryColor": "#0f172a", "tertiaryColor": "#334155", "lineColor": "#64748b", "textColor": "#e2e8f0"}, "flowchart": {"htmlLabels": true, "curve": "basis", "nodeSpacing": 48, "rankSpacing": 64, "padding": 14, "diagramPadding": 10, "useMaxWidth": true}}}%%
+flowchart LR
+    %% Section: CLI &amp; Skill Installers (2 nodes, 1 edges)
+    CLAUDE_md_3bd1b25f("Claude Code Guidance<br/><small>CLAUDE.md</small>")
+    README_md_a2d36f9a("User Documentation<br/><small>README.md</small>")
+    class CLAUDE_md_3bd1b25f concept;
+    class README_md_a2d36f9a concept;
+    classDef entry fill:#422006,stroke:#fbbf24,color:#fde68a,stroke-width:1px;
+    classDef api fill:#450a0a,stroke:#f87171,color:#fee2e2,stroke-width:1px;
+    classDef async fill:#2e1065,stroke:#a78bfa,color:#ede9fe,stroke-width:1px;
+    classDef klass fill:#064e3b,stroke:#34d399,color:#d1fae5,stroke-width:1px;
+    classDef ui fill:#831843,stroke:#f472b6,color:#fce7f3,stroke-width:1px;
+    classDef module fill:#172554,stroke:#60a5fa,color:#dbeafe,stroke-width:1px;
+    classDef test fill:#3f3f46,stroke:#a1a1aa,color:#f4f4f5,stroke-width:1px;
+    classDef concept fill:#292524,stroke:#a8a29e,color:#fafaf9,stroke-dasharray:4 3;
+    classDef function fill:#0f172a,stroke:#38bdf8,color:#e0f2fe,stroke-width:1px;
+</div>
+
+<h3>Call Details</h3>
+<table class="call-table">
+<tr>
+  <th style="width:5%">#</th>
+  <th style="width:28%">Node</th>
+  <th style="width:10%">Type</th>
+  <th style="width:17%">Caller</th>
+  <th style="width:20%">Callees</th>
+  <th style="width:20%">Description</th>
+</tr>
+<tr>
+  <td>1</td>
+  <td><code>Claude Code Guidance</code><br><small style="color:var(--muted)">CLAUDE.md</small></td>
+  <td><span class="tag tag-func">Concept</span></td>
+  <td>External entry / no inbound edge</td>
+  <td>No direct outbound edge</td>
+  <td>Documentation node describing Claude Code Guidance.</td>
+</tr>
+<tr>
+  <td>2</td>
+  <td><code>User Documentation</code><br><small style="color:var(--muted)">README.md</small></td>
+  <td><span class="tag tag-func">Concept</span></td>
+  <td>External entry / no inbound edge</td>
+  <td>No direct outbound edge</td>
+  <td>Documentation node describing User Documentation.</td>
+</tr>
+</table>
+
+<div class="grid">
+  <div class="card">
+    <h4>Key Files</h4>
+    <table style="width:100%;font-size:0.85rem;">
+      <tr><th>File</th><th>Coverage</th></tr>
+      <tr><td><code>CLAUDE.md</code></td><td>1 nodes</td></tr>
+<tr><td><code>README.md</code></td><td>1 nodes</td></tr>
+    </table>
+  </div>
+  <div class="card">
+    <h4>Design Notes</h4>
+    <p>This section comes from graphify community clustering. Relationship summary: No high-confidence call edges detected. The diagram prioritizes high-confidence calls or usage relationships; the table keeps the broader node inventory.</p>
+  </div>
+</div>
+<hr>
+
+<!-- ====== 4. Ingestion & Updates ====== -->
+<h2 id="ingest-cache-update">4. Ingestion &amp; Updates</h2>
+<p>Ingestion &amp; Updates groups implementation around updaterpy, return, branch, dagster, mostly in updater.py. This section covers 13 nodes and 17 internal edges; the diagram shows only representative relationships to stay readable.</p>
+
+<div class="mermaid">
+%%{init: {"theme": "dark", "themeVariables": {"fontSize": "15.0px", "fontFamily": "Segoe UI, system-ui, sans-serif", "primaryColor": "#1e293b", "primaryTextColor": "#e2e8f0", "primaryBorderColor": "#38bdf8", "secondaryColor": "#0f172a", "tertiaryColor": "#334155", "lineColor": "#64748b", "textColor": "#e2e8f0"}, "flowchart": {"htmlLabels": true, "curve": "basis", "nodeSpacing": 48, "rankSpacing": 64, "padding": 14, "diagramPadding": 10, "useMaxWidth": true}}}%%
+flowchart LR
+    %% Section: Ingestion &amp; Updates (13 nodes, 17 edges)
+    dagster_updater_commits_behind_b3d5bf10("_commits_behind()<br/><small>updater.py</small>")
+    dagster_updater_current_branch_b088b289("_current_branch()<br/><small>updater.py</small>")
+    dagster_updater_fetch_bb54ec6e("_fetch()<br/><small>updater.py</small>")
+    dagster_updater_is_opted_out_9b66cd17("_is_opted_out()<br/><small>updater.py</small>")
+    dagster_updater_pull_ff_ef46ccb6("_pull_ff()<br/><small>updater.py</small>")
+    dagster_updater_check_and_update_2bc49988("check_and_update()<br/><small>updater.py</small>")
+    updater_py_78bb354a("updater.py")
+    dagster_updater_rationale_107_155aa021("Pull the latest dagster/ code from orig...<br/><small>updater.py</small>")
+    dagster_updater_rationale_90_faad1572("Return True on successful fast-forward...<br/><small>updater.py</small>")
+    dagster_updater_rationale_52_a604f48a("Return True on successful fetch; False...<br/><small>updater.py</small>")
+    dagster_updater_rationale_69_fddc54cb("Return commits HEAD is behind origin/&lt;b...<br/><small>updater.py</small>")
+    dagster_updater_rationale_32_f7bcff6f("Return the currently checked-out branch...<br/><small>updater.py</small>")
+    dagster_updater_rationale_1_cf1c417e("Self-update for the dagster runner. Pul...<br/><small>updater.py</small>")
+    dagster_updater_is_opted_out_9b66cd17 -->|calls| dagster_updater_check_and_update_2bc49988
+    dagster_updater_current_branch_b088b289 -->|calls| dagster_updater_check_and_update_2bc49988
+    dagster_updater_fetch_bb54ec6e -->|calls| dagster_updater_check_and_update_2bc49988
+    dagster_updater_commits_behind_b3d5bf10 -->|calls| dagster_updater_check_and_update_2bc49988
+    dagster_updater_pull_ff_ef46ccb6 -->|calls| dagster_updater_check_and_update_2bc49988
+    class dagster_updater_commits_behind_b3d5bf10 function;
+    class dagster_updater_current_branch_b088b289 function;
+    class dagster_updater_fetch_bb54ec6e function;
+    class dagster_updater_is_opted_out_9b66cd17 function;
+    class dagster_updater_pull_ff_ef46ccb6 function;
+    class dagster_updater_check_and_update_2bc49988 function;
+    class updater_py_78bb354a module;
+    class dagster_updater_rationale_107_155aa021 concept;
+    class dagster_updater_rationale_90_faad1572 concept;
+    class dagster_updater_rationale_52_a604f48a concept;
+    class dagster_updater_rationale_69_fddc54cb concept;
+    class dagster_updater_rationale_32_f7bcff6f concept;
+    class dagster_updater_rationale_1_cf1c417e concept;
+    classDef entry fill:#422006,stroke:#fbbf24,color:#fde68a,stroke-width:1px;
+    classDef api fill:#450a0a,stroke:#f87171,color:#fee2e2,stroke-width:1px;
+    classDef async fill:#2e1065,stroke:#a78bfa,color:#ede9fe,stroke-width:1px;
+    classDef klass fill:#064e3b,stroke:#34d399,color:#d1fae5,stroke-width:1px;
+    classDef ui fill:#831843,stroke:#f472b6,color:#fce7f3,stroke-width:1px;
+    classDef module fill:#172554,stroke:#60a5fa,color:#dbeafe,stroke-width:1px;
+    classDef test fill:#3f3f46,stroke:#a1a1aa,color:#f4f4f5,stroke-width:1px;
+    classDef concept fill:#292524,stroke:#a8a29e,color:#fafaf9,stroke-dasharray:4 3;
+    classDef function fill:#0f172a,stroke:#38bdf8,color:#e0f2fe,stroke-width:1px;
+</div>
+
+<h3>Call Details</h3>
+<table class="call-table">
+<tr>
+  <th style="width:5%">#</th>
+  <th style="width:28%">Node</th>
+  <th style="width:10%">Type</th>
+  <th style="width:17%">Caller</th>
+  <th style="width:20%">Callees</th>
+  <th style="width:20%">Description</th>
+</tr>
+<tr>
+  <td>1</td>
+  <td><code>updater.py</code><br><small style="color:var(--muted)">updater.py</small></td>
+  <td><span class="tag tag-class">Module</span></td>
+  <td>External entry / no inbound edge</td>
+  <td>No direct outbound edge</td>
+  <td>Module file in updater.py.</td>
+</tr>
+<tr>
+  <td>2</td>
+  <td><code>_is_opted_out()</code><br><small style="color:var(--muted)">updater.py</small></td>
+  <td><span class="tag tag-func">Function</span></td>
+  <td>External entry / no inbound edge</td>
+  <td><code>check_and_update()</code><br><small style="color:var(--muted)">updater.py</small></td>
+  <td>_is_opted_out() node in updater.py.</td>
+</tr>
+<tr>
+  <td>3</td>
+  <td><code>_current_branch()</code><br><small style="color:var(--muted)">updater.py</small></td>
+  <td><span class="tag tag-func">Function</span></td>
+  <td>External entry / no inbound edge</td>
+  <td><code>check_and_update()</code><br><small style="color:var(--muted)">updater.py</small></td>
+  <td>_current_branch() node in updater.py.</td>
+</tr>
+<tr>
+  <td>4</td>
+  <td><code>_fetch()</code><br><small style="color:var(--muted)">updater.py</small></td>
+  <td><span class="tag tag-func">Function</span></td>
+  <td>External entry / no inbound edge</td>
+  <td><code>check_and_update()</code><br><small style="color:var(--muted)">updater.py</small></td>
+  <td>_fetch() node in updater.py.</td>
+</tr>
+<tr>
+  <td>5</td>
+  <td><code>_commits_behind()</code><br><small style="color:var(--muted)">updater.py</small></td>
+  <td><span class="tag tag-func">Function</span></td>
+  <td>External entry / no inbound edge</td>
+  <td><code>check_and_update()</code><br><small style="color:var(--muted)">updater.py</small></td>
+  <td>_commits_behind() node in updater.py.</td>
+</tr>
+<tr>
+  <td>6</td>
+  <td><code>_pull_ff()</code><br><small style="color:var(--muted)">updater.py</small></td>
+  <td><span class="tag tag-func">Function</span></td>
+  <td>External entry / no inbound edge</td>
+  <td><code>check_and_update()</code><br><small style="color:var(--muted)">updater.py</small></td>
+  <td>_pull_ff() node in updater.py.</td>
+</tr>
+<tr>
+  <td>7</td>
+  <td><code>check_and_update()</code><br><small style="color:var(--muted)">updater.py</small></td>
+  <td><span class="tag tag-func">Function</span></td>
+  <td><code>_commits_behind()</code><br><small style="color:var(--muted)">updater.py</small><br><code>_current_branch()</code><br><small style="color:var(--muted)">updater.py</small><br><code>_fetch()</code><br><small style="color:var(--muted)">updater.py</small><br>+2 more</td>
+  <td>No direct outbound edge</td>
+  <td>check_and_update() node in updater.py.</td>
+</tr>
+<tr>
+  <td>8</td>
+  <td><code>Self-update for the dagster runner.  Pulls the latest dagster/ code from origin</code><br><small style="color:var(--muted)">updater.py</small></td>
+  <td><span class="tag tag-func">Concept</span></td>
+  <td>External entry / no inbound edge</td>
+  <td>No direct outbound edge</td>
+  <td>Design note for Self-update for the dagster runner.  Pulls the latest dagster/ code from origin.</td>
+</tr>
+<tr>
+  <td>9</td>
+  <td><code>Return the currently checked-out branch, or None on detached HEAD / error.</code><br><small style="color:var(--muted)">updater.py</small></td>
+  <td><span class="tag tag-func">Concept</span></td>
+  <td>External entry / no inbound edge</td>
+  <td>No direct outbound edge</td>
+  <td>Design note for Return the currently checked-out branch, or None on detached HEAD / error..</td>
+</tr>
+<tr>
+  <td>10</td>
+  <td><code>Return True on successful fetch; False otherwise (warning already logged).</code><br><small style="color:var(--muted)">updater.py</small></td>
+  <td><span class="tag tag-func">Concept</span></td>
+  <td>External entry / no inbound edge</td>
+  <td>No direct outbound edge</td>
+  <td>Design note for Return True on successful fetch; False otherwise (warning already logged)..</td>
+</tr>
+<tr>
+  <td>11</td>
+  <td><code>Return commits HEAD is behind origin/&lt;branch&gt;, or None on error.</code><br><small style="color:var(--muted)">updater.py</small></td>
+  <td><span class="tag tag-func">Concept</span></td>
+  <td>External entry / no inbound edge</td>
+  <td>No direct outbound edge</td>
+  <td>Design note for Return commits HEAD is behind origin/&lt;branch&gt;, or None on error..</td>
+</tr>
+<tr>
+  <td>12</td>
+  <td><code>Return True on successful fast-forward merge; False otherwise (warning already l</code><br><small style="color:var(--muted)">updater.py</small></td>
+  <td><span class="tag tag-func">Concept</span></td>
+  <td>External entry / no inbound edge</td>
+  <td>No direct outbound edge</td>
+  <td>Design note for Return True on successful fast-forward merge; False otherwise (warning already l.</td>
+</tr>
+<tr>
+  <td>13</td>
+  <td><code>Pull the latest dagster/ code from origin. Best-effort, never raises.</code><br><small style="color:var(--muted)">updater.py</small></td>
+  <td><span class="tag tag-func">Concept</span></td>
+  <td>External entry / no inbound edge</td>
+  <td>No direct outbound edge</td>
+  <td>Design note for Pull the latest dagster/ code from origin. Best-effort, never raises..</td>
+</tr>
+</table>
+
+<div class="grid">
+  <div class="card">
+    <h4>Key Files</h4>
+    <table style="width:100%;font-size:0.85rem;">
+      <tr><th>File</th><th>Coverage</th></tr>
+      <tr><td><code>updater.py</code></td><td>13 nodes</td></tr>
+    </table>
+  </div>
+  <div class="card">
+    <h4>Design Notes</h4>
+    <p>This section comes from graphify community clustering. Relationship summary: contains x6, explains x6, calls x5. The diagram prioritizes high-confidence calls or usage relationships; the table keeps the broader node inventory.</p>
+  </div>
+</div>
+<hr>
+
+<!-- ====== 5. Tests & Fixtures ====== -->
+<h2 id="tests-fixtures">5. Tests &amp; Fixtures</h2>
+<p>Tests &amp; Fixtures groups implementation around test, reportingpy, report, parallel, mostly in test_reporting.py, test_updater.py, test_parallel_utils.py. This section covers 119 nodes and 227 internal edges; the diagram shows only representative relationships to stay readable.</p>
+
+<div class="mermaid">
+%%{init: {"theme": "dark", "themeVariables": {"fontSize": "15.0px", "fontFamily": "Segoe UI, system-ui, sans-serif", "primaryColor": "#1e293b", "primaryTextColor": "#e2e8f0", "primaryBorderColor": "#38bdf8", "secondaryColor": "#0f172a", "tertiaryColor": "#334155", "lineColor": "#64748b", "textColor": "#e2e8f0"}, "flowchart": {"htmlLabels": true, "curve": "basis", "nodeSpacing": 48, "rankSpacing": 64, "padding": 14, "diagramPadding": 10, "useMaxWidth": true}}}%%
+flowchart LR
+    %% Section: Tests &amp; Fixtures (119 nodes, 227 edges)
+    subgraph tests_fixtures_test_reporting_py_99bd62b5["test_reporting.py"]
+        dagster_test_reporting_read_log_e80bb7f5("_read_log()<br/><small>test_reporting.py</small>")
+        dagster_test_reporting_make_entry_269e4172("_make_entry()<br/><small>test_reporting.py</small>")
+        dagster_test_reporting_read_ndjson_d5776334("_read_ndjson()<br/><small>test_reporting.py</small>")
+        dagster_test_reporting_write_ndjson_76fd3039("_write_ndjson()<br/><small>test_reporting.py</small>")
+        dagster_test_reporting_make_step_2f62a25f("_make_step()<br/><small>test_reporting.py</small>")
+        dagster_test_reporting_test_write_log_txt_pass_w_7c827234("all steps pass()<br/><small>test_reporting.py</small>")
+        dagster_test_reporting_test_write_log_txt_fail_w_f3499187("any step fails()<br/><small>test_reporting.py</small>")
+        dagster_test_reporting_test_write_log_txt_step_w_d0a2f5f7("step without behaviour()<br/><small>test_reporting.py</small>")
+        dagster_test_reporting_test_write_log_txt_step_w_55e61d1d("step with behaviour()<br/><small>test_reporting.py</small>")
+        dagster_test_reporting_test_write_log_txt_no_scr_1e7dc732("screenshot uses dash()<br/><small>test_reporting.py</small>")
+        dagster_test_reporting_test_write_log_txt_no_err_ddabf490("when steps exist()<br/><small>test_reporting.py</small>")
+        dagster_test_reporting_test_write_log_txt_fail_w_b1b5c742("when error top()<br/><small>test_reporting.py</small>")
+        dagster_test_reporting_test_write_log_txt_header_173ceba9("line is name()<br/><small>test_reporting.py</small>")
+    end
+    subgraph tests_fixtures_parallel_utils_py_690e8473["parallel_utils.py"]
+        dagster_parallel_utils_parse_adb_devices_6696e8af("parse_adb_devices()<br/><small>parallel_utils.py</small>")
+        dagster_parallel_utils_list_devices_775da08f("list_devices()<br/><small>parallel_utils.py</small>")
+    end
+    subgraph tests_fixtures_reporting_py_2ebfc3c9["reporting.py"]
+        dagster_reporting_normalize_and_filter_airtest_l_294673e5("filter airtest log()<br/><small>reporting.py</small>")
+        dagster_reporting_generate_html_00f430d6("generate_html()<br/><small>reporting.py</small>")
+    end
+    dagster_run_08a35bf6("CLI Entrypoint<br/><small>dagster_run.py</small>")
+    dagster_parallel_utils_parse_adb_devices_6696e8af -->|calls| dagster_parallel_utils_list_devices_775da08f
+    dagster_reporting_normalize_and_filter_airtest_l_294673e5 -->|calls| dagster_reporting_generate_html_00f430d6
+    dagster_test_reporting_make_step_2f62a25f -->|calls| dagster_test_reporting_test_write_log_txt_pass_w_7c827234
+    dagster_test_reporting_make_step_2f62a25f -->|calls| dagster_test_reporting_test_write_log_txt_fail_w_f3499187
+    dagster_test_reporting_make_step_2f62a25f -->|calls| dagster_test_reporting_test_write_log_txt_step_w_d0a2f5f7
+    dagster_test_reporting_make_step_2f62a25f -->|calls| dagster_test_reporting_test_write_log_txt_step_w_55e61d1d
+    dagster_test_reporting_make_step_2f62a25f -->|calls| dagster_test_reporting_test_write_log_txt_no_scr_1e7dc732
+    dagster_test_reporting_make_step_2f62a25f -->|calls| dagster_test_reporting_test_write_log_txt_no_err_ddabf490
+    dagster_test_reporting_read_log_e80bb7f5 -->|calls| dagster_test_reporting_test_write_log_txt_pass_w_7c827234
+    dagster_test_reporting_read_log_e80bb7f5 -->|calls| dagster_test_reporting_test_write_log_txt_fail_w_f3499187
+    dagster_test_reporting_read_log_e80bb7f5 -->|calls| dagster_test_reporting_test_write_log_txt_fail_w_b1b5c742
+    dagster_test_reporting_read_log_e80bb7f5 -->|calls| dagster_test_reporting_test_write_log_txt_header_173ceba9
+    dagster_test_reporting_read_log_e80bb7f5 -->|calls| dagster_test_reporting_test_write_log_txt_step_w_d0a2f5f7
+    dagster_test_reporting_read_log_e80bb7f5 -->|calls| dagster_test_reporting_test_write_log_txt_step_w_55e61d1d
+    dagster_test_reporting_read_log_e80bb7f5 -->|calls| dagster_test_reporting_test_write_log_txt_no_scr_1e7dc732
+    dagster_test_reporting_read_log_e80bb7f5 -->|calls| dagster_test_reporting_test_write_log_txt_no_err_ddabf490
+    %% Omitted for readability: 101 nodes, 0 edges
+    class dagster_test_reporting_read_log_e80bb7f5 test;
+    class dagster_test_reporting_make_entry_269e4172 test;
+    class dagster_test_reporting_read_ndjson_d5776334 test;
+    class dagster_test_reporting_write_ndjson_76fd3039 test;
+    class dagster_test_reporting_make_step_2f62a25f test;
+    class dagster_test_reporting_test_write_log_txt_pass_w_7c827234 test;
+    class dagster_test_reporting_test_write_log_txt_fail_w_f3499187 test;
+    class dagster_test_reporting_test_write_log_txt_step_w_d0a2f5f7 test;
+    class dagster_test_reporting_test_write_log_txt_step_w_55e61d1d test;
+    class dagster_test_reporting_test_write_log_txt_no_scr_1e7dc732 test;
+    class dagster_test_reporting_test_write_log_txt_no_err_ddabf490 test;
+    class dagster_test_reporting_test_write_log_txt_fail_w_b1b5c742 test;
+    class dagster_test_reporting_test_write_log_txt_header_173ceba9 test;
+    class dagster_parallel_utils_parse_adb_devices_6696e8af function;
+    class dagster_parallel_utils_list_devices_775da08f function;
+    class dagster_reporting_normalize_and_filter_airtest_l_294673e5 function;
+    class dagster_reporting_generate_html_00f430d6 function;
+    class dagster_run_08a35bf6 entry;
+    classDef entry fill:#422006,stroke:#fbbf24,color:#fde68a,stroke-width:1px;
+    classDef api fill:#450a0a,stroke:#f87171,color:#fee2e2,stroke-width:1px;
+    classDef async fill:#2e1065,stroke:#a78bfa,color:#ede9fe,stroke-width:1px;
+    classDef klass fill:#064e3b,stroke:#34d399,color:#d1fae5,stroke-width:1px;
+    classDef ui fill:#831843,stroke:#f472b6,color:#fce7f3,stroke-width:1px;
+    classDef module fill:#172554,stroke:#60a5fa,color:#dbeafe,stroke-width:1px;
+    classDef test fill:#3f3f46,stroke:#a1a1aa,color:#f4f4f5,stroke-width:1px;
+    classDef concept fill:#292524,stroke:#a8a29e,color:#fafaf9,stroke-dasharray:4 3;
+    classDef function fill:#0f172a,stroke:#38bdf8,color:#e0f2fe,stroke-width:1px;
+</div>
+
+<h3>Call Details</h3>
+<table class="call-table">
+<tr>
+  <th style="width:5%">#</th>
+  <th style="width:28%">Node</th>
+  <th style="width:10%">Type</th>
+  <th style="width:17%">Caller</th>
+  <th style="width:20%">Callees</th>
+  <th style="width:20%">Description</th>
+</tr>
+<tr>
+  <td>1</td>
+  <td><code>write_log_txt()</code><br><small style="color:var(--muted)">reporting.py</small></td>
+  <td><span class="tag tag-func">Function</span></td>
+  <td>External entry / no inbound edge</td>
+  <td><code>all steps pass()</code><br><small style="color:var(--muted)">test_reporting.py</small><br><code>any step fails()</code><br><small style="color:var(--muted)">test_reporting.py</small><br><code>line is name()</code><br><small style="color:var(--muted)">test_reporting.py</small><br>+8 more</td>
+  <td>write_log_txt() node in reporting.py.</td>
+</tr>
+<tr>
+  <td>2</td>
+  <td><code>generate_summary_report()</code><br><small style="color:var(--muted)">reporting.py</small></td>
+  <td><span class="tag tag-func">Function</span></td>
+  <td>External entry / no inbound edge</td>
+  <td><code>badge when present()</code><br><small style="color:var(--muted)">test_reporting.py</small><br><code>banner shows fail()</code><br><small style="color:var(--muted)">test_reporting.py</small><br><code>banner shows pass()</code><br><small style="color:var(--muted)">test_reporting.py</small><br>+17 more</td>
+  <td>generate_summary_report() node in reporting.py.</td>
+</tr>
+<tr>
+  <td>3</td>
+  <td><code>Write structured log.txt from captured steps.</code><br><small style="color:var(--muted)">reporting.py</small></td>
+  <td><span class="tag tag-func">Concept</span></td>
+  <td>External entry / no inbound edge</td>
+  <td>No direct outbound edge</td>
+  <td>Design note for Write structured log.txt from captured steps..</td>
+</tr>
+<tr>
+  <td>4</td>
+  <td><code>test_reporting.py</code><br><small style="color:var(--muted)">test_reporting.py</small></td>
+  <td><span class="tag tag-func">Test</span></td>
+  <td>External entry / no inbound edge</td>
+  <td><code>Report Generator</code><br><small style="color:var(--muted)">reporting.py</small></td>
+  <td>Module file in test_reporting.py.</td>
+</tr>
+<tr>
+  <td>5</td>
+  <td><code>_make_step()</code><br><small style="color:var(--muted)">test_reporting.py</small></td>
+  <td><span class="tag tag-func">Test</span></td>
+  <td>External entry / no inbound edge</td>
+  <td><code>all steps pass()</code><br><small style="color:var(--muted)">test_reporting.py</small><br><code>any step fails()</code><br><small style="color:var(--muted)">test_reporting.py</small><br><code>screenshot uses dash()</code><br><small style="color:var(--muted)">test_reporting.py</small><br>+3 more</td>
+  <td>_make_step() node in test_reporting.py.</td>
+</tr>
+<tr>
+  <td>6</td>
+  <td><code>_read_log()</code><br><small style="color:var(--muted)">test_reporting.py</small></td>
+  <td><span class="tag tag-func">Test</span></td>
+  <td>External entry / no inbound edge</td>
+  <td><code>all steps pass()</code><br><small style="color:var(--muted)">test_reporting.py</small><br><code>any step fails()</code><br><small style="color:var(--muted)">test_reporting.py</small><br><code>line is name()</code><br><small style="color:var(--muted)">test_reporting.py</small><br>+8 more</td>
+  <td>_read_log() node in test_reporting.py.</td>
+</tr>
+<tr>
+  <td>7</td>
+  <td><code>test_write_log_txt_pass_when_all_steps_pass()</code><br><small style="color:var(--muted)">test_reporting.py</small></td>
+  <td><span class="tag tag-func">Test</span></td>
+  <td><code>_make_step()</code><br><small style="color:var(--muted)">test_reporting.py</small><br><code>_read_log()</code><br><small style="color:var(--muted)">test_reporting.py</small><br><code>write_log_txt()</code><br><small style="color:var(--muted)">reporting.py</small></td>
+  <td>No direct outbound edge</td>
+  <td>Verifies imports, entry points, or version behavior.</td>
+</tr>
+<tr>
+  <td>8</td>
+  <td><code>test_write_log_txt_fail_when_any_step_fails()</code><br><small style="color:var(--muted)">test_reporting.py</small></td>
+  <td><span class="tag tag-func">Test</span></td>
+  <td><code>_make_step()</code><br><small style="color:var(--muted)">test_reporting.py</small><br><code>_read_log()</code><br><small style="color:var(--muted)">test_reporting.py</small><br><code>write_log_txt()</code><br><small style="color:var(--muted)">reporting.py</small></td>
+  <td>No direct outbound edge</td>
+  <td>Verifies imports, entry points, or version behavior.</td>
+</tr>
+<tr>
+  <td>9</td>
+  <td><code>test_write_log_txt_fail_when_error_top()</code><br><small style="color:var(--muted)">test_reporting.py</small></td>
+  <td><span class="tag tag-func">Test</span></td>
+  <td><code>_read_log()</code><br><small style="color:var(--muted)">test_reporting.py</small><br><code>write_log_txt()</code><br><small style="color:var(--muted)">reporting.py</small></td>
+  <td>No direct outbound edge</td>
+  <td>Verifies imports, entry points, or version behavior.</td>
+</tr>
+<tr>
+  <td>10</td>
+  <td><code>test_write_log_txt_header_first_line_is_name()</code><br><small style="color:var(--muted)">test_reporting.py</small></td>
+  <td><span class="tag tag-func">Test</span></td>
+  <td><code>_read_log()</code><br><small style="color:var(--muted)">test_reporting.py</small><br><code>write_log_txt()</code><br><small style="color:var(--muted)">reporting.py</small></td>
+  <td>No direct outbound edge</td>
+  <td>Verifies imports, entry points, or version behavior.</td>
+</tr>
+<tr>
+  <td>11</td>
+  <td><code>test_write_log_txt_header_run_line_format()</code><br><small style="color:var(--muted)">test_reporting.py</small></td>
+  <td><span class="tag tag-func">Test</span></td>
+  <td><code>_read_log()</code><br><small style="color:var(--muted)">test_reporting.py</small><br><code>write_log_txt()</code><br><small style="color:var(--muted)">reporting.py</small></td>
+  <td>No direct outbound edge</td>
+  <td>Verifies imports, entry points, or version behavior.</td>
+</tr>
+<tr>
+  <td>12</td>
+  <td><code>test_write_log_txt_step_without_behaviour()</code><br><small style="color:var(--muted)">test_reporting.py</small></td>
+  <td><span class="tag tag-func">Test</span></td>
+  <td><code>_make_step()</code><br><small style="color:var(--muted)">test_reporting.py</small><br><code>_read_log()</code><br><small style="color:var(--muted)">test_reporting.py</small><br><code>write_log_txt()</code><br><small style="color:var(--muted)">reporting.py</small></td>
+  <td>No direct outbound edge</td>
+  <td>Verifies imports, entry points, or version behavior.</td>
+</tr>
+<tr>
+  <td>13</td>
+  <td><code>test_write_log_txt_step_with_behaviour()</code><br><small style="color:var(--muted)">test_reporting.py</small></td>
+  <td><span class="tag tag-func">Test</span></td>
+  <td><code>_make_step()</code><br><small style="color:var(--muted)">test_reporting.py</small><br><code>_read_log()</code><br><small style="color:var(--muted)">test_reporting.py</small><br><code>write_log_txt()</code><br><small style="color:var(--muted)">reporting.py</small></td>
+  <td>No direct outbound edge</td>
+  <td>Verifies imports, entry points, or version behavior.</td>
+</tr>
+<tr>
+  <td>14</td>
+  <td><code>test_write_log_txt_no_screenshot_uses_dash()</code><br><small style="color:var(--muted)">test_reporting.py</small></td>
+  <td><span class="tag tag-func">Test</span></td>
+  <td><code>_make_step()</code><br><small style="color:var(--muted)">test_reporting.py</small><br><code>_read_log()</code><br><small style="color:var(--muted)">test_reporting.py</small><br><code>write_log_txt()</code><br><small style="color:var(--muted)">reporting.py</small></td>
+  <td>No direct outbound edge</td>
+  <td>Verifies imports, entry points, or version behavior.</td>
+</tr>
+<tr>
+  <td>15</td>
+  <td><code>test_write_log_txt_error_line_when_no_steps()</code><br><small style="color:var(--muted)">test_reporting.py</small></td>
+  <td><span class="tag tag-func">Test</span></td>
+  <td><code>_read_log()</code><br><small style="color:var(--muted)">test_reporting.py</small><br><code>write_log_txt()</code><br><small style="color:var(--muted)">reporting.py</small></td>
+  <td>No direct outbound edge</td>
+  <td>Verifies imports, entry points, or version behavior.</td>
+</tr>
+<tr>
+  <td>16</td>
+  <td><code>test_write_log_txt_no_error_line_when_steps_exist()</code><br><small style="color:var(--muted)">test_reporting.py</small></td>
+  <td><span class="tag tag-func">Test</span></td>
+  <td><code>_make_step()</code><br><small style="color:var(--muted)">test_reporting.py</small><br><code>_read_log()</code><br><small style="color:var(--muted)">test_reporting.py</small><br><code>write_log_txt()</code><br><small style="color:var(--muted)">reporting.py</small></td>
+  <td>No direct outbound edge</td>
+  <td>Verifies imports, entry points, or version behavior.</td>
+</tr>
+<tr>
+  <td>17</td>
+  <td><code>test_write_log_txt_pass_when_empty_steps_no_error()</code><br><small style="color:var(--muted)">test_reporting.py</small></td>
+  <td><span class="tag tag-func">Test</span></td>
+  <td><code>_read_log()</code><br><small style="color:var(--muted)">test_reporting.py</small><br><code>write_log_txt()</code><br><small style="color:var(--muted)">reporting.py</small></td>
+  <td>No direct outbound edge</td>
+  <td>Verifies imports, entry points, or version behavior.</td>
+</tr>
+<tr>
+  <td>18</td>
+  <td><code>test_generate_summary_report_writes_file()</code><br><small style="color:var(--muted)">test_reporting.py</small></td>
+  <td><span class="tag tag-func">Test</span></td>
+  <td><code>generate_summary_report()</code><br><small style="color:var(--muted)">reporting.py</small></td>
+  <td>No direct outbound edge</td>
+  <td>Verifies imports, entry points, or version behavior.</td>
+</tr>
+<tr>
+  <td>19</td>
+  <td><code>test_generate_summary_report_banner_shows_pass()</code><br><small style="color:var(--muted)">test_reporting.py</small></td>
+  <td><span class="tag tag-func">Test</span></td>
+  <td><code>generate_summary_report()</code><br><small style="color:var(--muted)">reporting.py</small></td>
+  <td>No direct outbound edge</td>
+  <td>Verifies imports, entry points, or version behavior.</td>
+</tr>
+<tr>
+  <td>20</td>
+  <td><code>test_generate_summary_report_banner_shows_fail()</code><br><small style="color:var(--muted)">test_reporting.py</small></td>
+  <td><span class="tag tag-func">Test</span></td>
+  <td><code>generate_summary_report()</code><br><small style="color:var(--muted)">reporting.py</small></td>
+  <td>No direct outbound edge</td>
+  <td>Verifies imports, entry points, or version behavior.</td>
+</tr>
+<tr>
+  <td>21</td>
+  <td><code>test_generate_summary_report_banner_shows_skip()</code><br><small style="color:var(--muted)">test_reporting.py</small></td>
+  <td><span class="tag tag-func">Test</span></td>
+  <td><code>generate_summary_report()</code><br><small style="color:var(--muted)">reporting.py</small></td>
+  <td>No direct outbound edge</td>
+  <td>Verifies imports, entry points, or version behavior.</td>
+</tr>
+<tr>
+  <td>22</td>
+  <td><code>test_generate_summary_report_shows_test_name()</code><br><small style="color:var(--muted)">test_reporting.py</small></td>
+  <td><span class="tag tag-func">Test</span></td>
+  <td><code>generate_summary_report()</code><br><small style="color:var(--muted)">reporting.py</small></td>
+  <td>No direct outbound edge</td>
+  <td>Verifies imports, entry points, or version behavior.</td>
+</tr>
+<tr>
+  <td>23</td>
+  <td><code>test_generate_summary_report_step_table_renders()</code><br><small style="color:var(--muted)">test_reporting.py</small></td>
+  <td><span class="tag tag-func">Test</span></td>
+  <td><code>generate_summary_report()</code><br><small style="color:var(--muted)">reporting.py</small></td>
+  <td>No direct outbound edge</td>
+  <td>Verifies imports, entry points, or version behavior.</td>
+</tr>
+<tr>
+  <td>24</td>
+  <td><code>test_generate_summary_report_empty_steps()</code><br><small style="color:var(--muted)">test_reporting.py</small></td>
+  <td><span class="tag tag-func">Test</span></td>
+  <td><code>generate_summary_report()</code><br><small style="color:var(--muted)">reporting.py</small></td>
+  <td>No direct outbound edge</td>
+  <td>Verifies imports, entry points, or version behavior.</td>
+</tr>
+<tr>
+  <td>25</td>
+  <td><code>test_generate_summary_report_recording_badge_when_present()</code><br><small style="color:var(--muted)">test_reporting.py</small></td>
+  <td><span class="tag tag-func">Test</span></td>
+  <td><code>generate_summary_report()</code><br><small style="color:var(--muted)">reporting.py</small></td>
+  <td>No direct outbound edge</td>
+  <td>Verifies imports, entry points, or version behavior.</td>
+</tr>
+<tr>
+  <td>26</td>
+  <td><code>test_generate_summary_report_duration_column_present()</code><br><small style="color:var(--muted)">test_reporting.py</small></td>
+  <td><span class="tag tag-func">Test</span></td>
+  <td><code>generate_summary_report()</code><br><small style="color:var(--muted)">reporting.py</small></td>
+  <td>No direct outbound edge</td>
+  <td>Verifies imports, entry points, or version behavior.</td>
+</tr>
+<tr>
+  <td>27</td>
+  <td><code>test_generate_summary_report_total_duration()</code><br><small style="color:var(--muted)">test_reporting.py</small></td>
+  <td><span class="tag tag-func">Test</span></td>
+  <td><code>generate_summary_report()</code><br><small style="color:var(--muted)">reporting.py</small></td>
+  <td>No direct outbound edge</td>
+  <td>Verifies imports, entry points, or version behavior.</td>
+</tr>
+<tr>
+  <td>28</td>
+  <td><code>test_generate_summary_report_preserves_html_escaped_names()</code><br><small style="color:var(--muted)">test_reporting.py</small></td>
+  <td><span class="tag tag-func">Test</span></td>
+  <td><code>generate_summary_report()</code><br><small style="color:var(--muted)">reporting.py</small></td>
+  <td>No direct outbound edge</td>
+  <td>Exports documentation data to a target format.</td>
+</tr>
+<tr>
+  <td>29</td>
+  <td><code>test_generate_summary_report_called_from_runner_integration()</code><br><small style="color:var(--muted)">test_reporting.py</small></td>
+  <td><span class="tag tag-func">Test</span></td>
+  <td><code>generate_summary_report()</code><br><small style="color:var(--muted)">reporting.py</small></td>
+  <td>No direct outbound edge</td>
+  <td>Verifies imports, entry points, or version behavior.</td>
+</tr>
+<tr>
+  <td>30</td>
+  <td><code>test_generate_summary_report_empty_steps_shows_no_steps_message()</code><br><small style="color:var(--muted)">test_reporting.py</small></td>
+  <td><span class="tag tag-func">Test</span></td>
+  <td><code>generate_summary_report()</code><br><small style="color:var(--muted)">reporting.py</small></td>
+  <td>No direct outbound edge</td>
+  <td>Verifies imports, entry points, or version behavior.</td>
+</tr>
+</table>
+
+<div class="grid">
+  <div class="card">
+    <h4>Key Files</h4>
+    <table style="width:100%;font-size:0.85rem;">
+      <tr><th>File</th><th>Coverage</th></tr>
+      <tr><td><code>test_reporting.py</code></td><td>50 nodes</td></tr>
+<tr><td><code>test_updater.py</code></td><td>16 nodes</td></tr>
+<tr><td><code>test_parallel_utils.py</code></td><td>11 nodes</td></tr>
+<tr><td><code>parallel_utils.py</code></td><td>9 nodes</td></tr>
+<tr><td><code>reporting.py</code></td><td>9 nodes</td></tr>
+<tr><td><code>ScrcpyRecorder.py</code></td><td>1 nodes</td></tr>
+<tr><td><code>aggregate_report.py</code></td><td>1 nodes</td></tr>
+<tr><td><code>dagster_run.py</code></td><td>1 nodes</td></tr>
+    </table>
+  </div>
+  <div class="card">
+    <h4>Design Notes</h4>
+    <p>This section comes from graphify community clustering. Relationship summary: contains x74, calls x56, explains x23, references x16. The diagram prioritizes high-confidence calls or usage relationships; the table keeps the broader node inventory.</p>
+  </div>
+</div>
+<hr>
+
+<!-- ====== 6. Scrcpyrecorderpy Scrcpyrecorder Start ====== -->
+<h2 id="scrcpyrecorderpy-scrcpyrecorder-start">6. Scrcpyrecorderpy Scrcpyrecorder Start</h2>
+<p>Scrcpyrecorderpy Scrcpyrecorder Start groups implementation around scrcpyrecorderpy, scrcpyrecorder, start, stop, mostly in ScrcpyRecorder.py. This section covers 7 nodes and 8 internal edges; the diagram shows only representative relationships to stay readable.</p>
+
+<div class="mermaid">
+%%{init: {"theme": "dark", "themeVariables": {"fontSize": "15.0px", "fontFamily": "Segoe UI, system-ui, sans-serif", "primaryColor": "#1e293b", "primaryTextColor": "#e2e8f0", "primaryBorderColor": "#38bdf8", "secondaryColor": "#0f172a", "tertiaryColor": "#334155", "lineColor": "#64748b", "textColor": "#e2e8f0"}, "flowchart": {"htmlLabels": true, "curve": "basis", "nodeSpacing": 48, "rankSpacing": 64, "padding": 14, "diagramPadding": 10, "useMaxWidth": true}}}%%
+flowchart LR
+    %% Section: Scrcpyrecorderpy Scrcpyrecorder Start (7 nodes, 8 edges)
+    dagster_scrcpyrecorder_scrcpyrecorder_0691bb81("ScrcpyRecorder<br/><small>ScrcpyRecorder.py</small>")
+    dagster_scrcpyrecorder_scrcpyrecorder_start_889b2f1b("start()<br/><small>ScrcpyRecorder.py</small>")
+    dagster_scrcpyrecorder_scrcpyrecorder_stop_8037a84c("stop()<br/><small>ScrcpyRecorder.py</small>")
+    dagster_scrcpyrecorder_scrcpyrecorder_init_953d4e79("__init__()<br/><small>ScrcpyRecorder.py</small>")
+    dagster_scrcpyrecorder_scrcpyrecorder_enter_a7a8fce8("__enter__()<br/><small>ScrcpyRecorder.py</small>")
+    dagster_scrcpyrecorder_scrcpyrecorder_exit_5d10f358("__exit__()<br/><small>ScrcpyRecorder.py</small>")
+    scrcpyrecorder_py_e4147f76("ScrcpyRecorder.py")
+    dagster_scrcpyrecorder_scrcpyrecorder_0691bb81 -->|method| dagster_scrcpyrecorder_scrcpyrecorder_init_953d4e79
+    dagster_scrcpyrecorder_scrcpyrecorder_0691bb81 -->|method| dagster_scrcpyrecorder_scrcpyrecorder_start_889b2f1b
+    dagster_scrcpyrecorder_scrcpyrecorder_0691bb81 -->|method| dagster_scrcpyrecorder_scrcpyrecorder_stop_8037a84c
+    dagster_scrcpyrecorder_scrcpyrecorder_0691bb81 -->|method| dagster_scrcpyrecorder_scrcpyrecorder_enter_a7a8fce8
+    dagster_scrcpyrecorder_scrcpyrecorder_0691bb81 -->|method| dagster_scrcpyrecorder_scrcpyrecorder_exit_5d10f358
+    dagster_scrcpyrecorder_scrcpyrecorder_start_889b2f1b -->|calls| dagster_scrcpyrecorder_scrcpyrecorder_enter_a7a8fce8
+    dagster_scrcpyrecorder_scrcpyrecorder_stop_8037a84c -->|calls| dagster_scrcpyrecorder_scrcpyrecorder_exit_5d10f358
+    class dagster_scrcpyrecorder_scrcpyrecorder_0691bb81 klass;
+    class dagster_scrcpyrecorder_scrcpyrecorder_start_889b2f1b function;
+    class dagster_scrcpyrecorder_scrcpyrecorder_stop_8037a84c function;
+    class dagster_scrcpyrecorder_scrcpyrecorder_init_953d4e79 function;
+    class dagster_scrcpyrecorder_scrcpyrecorder_enter_a7a8fce8 function;
+    class dagster_scrcpyrecorder_scrcpyrecorder_exit_5d10f358 function;
+    class scrcpyrecorder_py_e4147f76 klass;
+    classDef entry fill:#422006,stroke:#fbbf24,color:#fde68a,stroke-width:1px;
+    classDef api fill:#450a0a,stroke:#f87171,color:#fee2e2,stroke-width:1px;
+    classDef async fill:#2e1065,stroke:#a78bfa,color:#ede9fe,stroke-width:1px;
+    classDef klass fill:#064e3b,stroke:#34d399,color:#d1fae5,stroke-width:1px;
+    classDef ui fill:#831843,stroke:#f472b6,color:#fce7f3,stroke-width:1px;
+    classDef module fill:#172554,stroke:#60a5fa,color:#dbeafe,stroke-width:1px;
+    classDef test fill:#3f3f46,stroke:#a1a1aa,color:#f4f4f5,stroke-width:1px;
+    classDef concept fill:#292524,stroke:#a8a29e,color:#fafaf9,stroke-dasharray:4 3;
+    classDef function fill:#0f172a,stroke:#38bdf8,color:#e0f2fe,stroke-width:1px;
+</div>
+
+<h3>Call Details</h3>
+<table class="call-table">
+<tr>
+  <th style="width:5%">#</th>
+  <th style="width:28%">Node</th>
+  <th style="width:10%">Type</th>
+  <th style="width:17%">Caller</th>
+  <th style="width:20%">Callees</th>
+  <th style="width:20%">Description</th>
+</tr>
+<tr>
+  <td>1</td>
+  <td><code>ScrcpyRecorder.py</code><br><small style="color:var(--muted)">ScrcpyRecorder.py</small></td>
+  <td><span class="tag tag-class">Class</span></td>
+  <td>External entry / no inbound edge</td>
+  <td>No direct outbound edge</td>
+  <td>Module file in ScrcpyRecorder.py.</td>
+</tr>
+<tr>
+  <td>2</td>
+  <td><code>ScrcpyRecorder</code><br><small style="color:var(--muted)">ScrcpyRecorder.py</small></td>
+  <td><span class="tag tag-class">Class</span></td>
+  <td>External entry / no inbound edge</td>
+  <td><code>__enter__()</code><br><small style="color:var(--muted)">ScrcpyRecorder.py</small><br><code>__exit__()</code><br><small style="color:var(--muted)">ScrcpyRecorder.py</small><br><code>__init__()</code><br><small style="color:var(--muted)">ScrcpyRecorder.py</small><br>+2 more</td>
+  <td>ScrcpyRecorder node in ScrcpyRecorder.py.</td>
+</tr>
+<tr>
+  <td>3</td>
+  <td><code>.__init__()</code><br><small style="color:var(--muted)">ScrcpyRecorder.py</small></td>
+  <td><span class="tag tag-func">Function</span></td>
+  <td><code>ScrcpyRecorder</code><br><small style="color:var(--muted)">ScrcpyRecorder.py</small></td>
+  <td>No direct outbound edge</td>
+  <td>.__init__() node in ScrcpyRecorder.py.</td>
+</tr>
+<tr>
+  <td>4</td>
+  <td><code>.start()</code><br><small style="color:var(--muted)">ScrcpyRecorder.py</small></td>
+  <td><span class="tag tag-func">Function</span></td>
+  <td><code>ScrcpyRecorder</code><br><small style="color:var(--muted)">ScrcpyRecorder.py</small></td>
+  <td><code>__enter__()</code><br><small style="color:var(--muted)">ScrcpyRecorder.py</small></td>
+  <td>.start() node in ScrcpyRecorder.py.</td>
+</tr>
+<tr>
+  <td>5</td>
+  <td><code>.stop()</code><br><small style="color:var(--muted)">ScrcpyRecorder.py</small></td>
+  <td><span class="tag tag-func">Function</span></td>
+  <td><code>ScrcpyRecorder</code><br><small style="color:var(--muted)">ScrcpyRecorder.py</small></td>
+  <td><code>__exit__()</code><br><small style="color:var(--muted)">ScrcpyRecorder.py</small></td>
+  <td>.stop() node in ScrcpyRecorder.py.</td>
+</tr>
+<tr>
+  <td>6</td>
+  <td><code>.__enter__()</code><br><small style="color:var(--muted)">ScrcpyRecorder.py</small></td>
+  <td><span class="tag tag-func">Function</span></td>
+  <td><code>ScrcpyRecorder</code><br><small style="color:var(--muted)">ScrcpyRecorder.py</small><br><code>start()</code><br><small style="color:var(--muted)">ScrcpyRecorder.py</small></td>
+  <td>No direct outbound edge</td>
+  <td>.__enter__() node in ScrcpyRecorder.py.</td>
+</tr>
+<tr>
+  <td>7</td>
+  <td><code>.__exit__()</code><br><small style="color:var(--muted)">ScrcpyRecorder.py</small></td>
+  <td><span class="tag tag-func">Function</span></td>
+  <td><code>ScrcpyRecorder</code><br><small style="color:var(--muted)">ScrcpyRecorder.py</small><br><code>stop()</code><br><small style="color:var(--muted)">ScrcpyRecorder.py</small></td>
+  <td>No direct outbound edge</td>
+  <td>.__exit__() node in ScrcpyRecorder.py.</td>
+</tr>
+</table>
+
+<div class="grid">
+  <div class="card">
+    <h4>Key Files</h4>
+    <table style="width:100%;font-size:0.85rem;">
+      <tr><th>File</th><th>Coverage</th></tr>
+      <tr><td><code>ScrcpyRecorder.py</code></td><td>7 nodes</td></tr>
+    </table>
+  </div>
+  <div class="card">
+    <h4>Design Notes</h4>
+    <p>This section comes from graphify community clustering. Relationship summary: method x5, calls x2, contains x1. The diagram prioritizes high-confidence calls or usage relationships; the table keeps the broader node inventory.</p>
+  </div>
+</div>
+<hr>
+
+<!-- ====== 7. Scrcpy Icon Win64 ====== -->
+<h2 id="scrcpy-icon-win64">7. Scrcpy Icon Win64</h2>
+<p>Scrcpy Icon Win64 groups implementation around scrcpy, icon, win64, iconpng, mostly in scrcpy-win64/icon.png. This section covers 1 nodes and 0 internal edges; the diagram shows only representative relationships to stay readable.</p>
+
+<div class="mermaid">
+%%{init: {"theme": "dark", "themeVariables": {"fontSize": "15.0px", "fontFamily": "Segoe UI, system-ui, sans-serif", "primaryColor": "#1e293b", "primaryTextColor": "#e2e8f0", "primaryBorderColor": "#38bdf8", "secondaryColor": "#0f172a", "tertiaryColor": "#334155", "lineColor": "#64748b", "textColor": "#e2e8f0"}, "flowchart": {"htmlLabels": true, "curve": "basis", "nodeSpacing": 48, "rankSpacing": 64, "padding": 14, "diagramPadding": 10, "useMaxWidth": true}}}%%
+flowchart LR
+    %% Section: Scrcpy Icon Win64 (1 nodes, 0 edges)
+    filestem_scrcpy_icon_90adf3b8("scrcpy Icon<br/><small>scrcpy-win64/icon.png</small>")
+    class filestem_scrcpy_icon_90adf3b8 function;
+    classDef entry fill:#422006,stroke:#fbbf24,color:#fde68a,stroke-width:1px;
+    classDef api fill:#450a0a,stroke:#f87171,color:#fee2e2,stroke-width:1px;
+    classDef async fill:#2e1065,stroke:#a78bfa,color:#ede9fe,stroke-width:1px;
+    classDef klass fill:#064e3b,stroke:#34d399,color:#d1fae5,stroke-width:1px;
+    classDef ui fill:#831843,stroke:#f472b6,color:#fce7f3,stroke-width:1px;
+    classDef module fill:#172554,stroke:#60a5fa,color:#dbeafe,stroke-width:1px;
+    classDef test fill:#3f3f46,stroke:#a1a1aa,color:#f4f4f5,stroke-width:1px;
+    classDef concept fill:#292524,stroke:#a8a29e,color:#fafaf9,stroke-dasharray:4 3;
+    classDef function fill:#0f172a,stroke:#38bdf8,color:#e0f2fe,stroke-width:1px;
+</div>
+
+<h3>Call Details</h3>
+<table class="call-table">
+<tr>
+  <th style="width:5%">#</th>
+  <th style="width:28%">Node</th>
+  <th style="width:10%">Type</th>
+  <th style="width:17%">Caller</th>
+  <th style="width:20%">Callees</th>
+  <th style="width:20%">Description</th>
+</tr>
+<tr>
+  <td>1</td>
+  <td><code>scrcpy Icon</code><br><small style="color:var(--muted)">scrcpy-win64/icon.png</small></td>
+  <td><span class="tag tag-func">Function</span></td>
+  <td>External entry / no inbound edge</td>
+  <td>No direct outbound edge</td>
+  <td>scrcpy Icon node in scrcpy-win64/icon.png.</td>
+</tr>
+</table>
+
+<div class="grid">
+  <div class="card">
+    <h4>Key Files</h4>
+    <table style="width:100%;font-size:0.85rem;">
+      <tr><th>File</th><th>Coverage</th></tr>
+      <tr><td><code>scrcpy-win64/icon.png</code></td><td>1 nodes</td></tr>
+    </table>
+  </div>
+  <div class="card">
+    <h4>Design Notes</h4>
+    <p>This section comes from graphify community clustering. Relationship summary: No high-confidence call edges detected. The diagram prioritizes high-confidence calls or usage relationships; the table keeps the broader node inventory.</p>
+  </div>
+</div>
+<hr>
+
+<h2 id="hyperedges">Group Relationships (Hyperedges)</h2>
+<div class="grid">
+
+  <div class="card">
+    <h4>Test Report Pipeline</h4>
+    <p><code>participate_in</code> — 4 participants</p>
+    <ul>
+      <li><code>step_capture</code></li>
+      <li><code>reporting</code></li>
+      <li><code>aggregate_report</code></li>
+      <li><code>report_server</code></li>
+    </ul>
+  </div>
+  <div class="card">
+    <h4>Test Execution Lifecycle</h4>
+    <p><code>participate_in</code> — 7 participants</p>
+    <ul>
+      <li><code>updater</code></li>
+      <li><code>dagster_run</code></li>
+      <li><code>runner</code></li>
+      <li><code>step_capture</code></li>
+      <li><code>reporting</code></li>
+      <li>... and 2 more</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h4>Multi-Device Parallel Execution</h4>
+    <p><code>form</code> — 3 participants</p>
+    <ul>
+      <li><code>parallel_utils</code></li>
+      <li><code>dagster_run</code></li>
+      <li><code>ProcessBasedParallelism</code></li>
+    </ul>
+  </div>
+</div>
+<hr>
+<h2 id="stats">Project Statistics</h2>
+
+<div class="grid">
+  <div class="card">
+    <h4>Graph</h4>
+    <table style="width:100%;font-size:0.85rem;">
+      <tr><td>Nodes</td><td>224</td></tr>
+      <tr><td>Edges</td><td>414</td></tr>
+      <tr><td>Hyperedges</td><td>3</td></tr>
+      <tr><td>Communities</td><td>12</td></tr>
+      <tr><td>Documented Sections</td><td>6</td></tr>
+    </table>
+  </div>
+  <div class="card">
+    <h4>Edge Confidence</h4>
+    <table style="width:100%;font-size:0.85rem;">
+      <tr><td>EXTRACTED</td><td>307</td></tr>
+      <tr><td>INFERRED</td><td>107</td></tr>
+      <tr><td>AMBIGUOUS</td><td>0</td></tr>
+    </table>
+  </div>
+</div>
+
+<div style="text-align:center; padding:40px 0; color: var(--muted); font-size:0.9rem;">
+  <p>dagster — Architecture Documentation</p>
+  <p>Generated: 2026-06-30 08:43 UTC · graphify callflow-html</p>
+</div>
+
+</div><!-- .container -->
+
+<script>
+(function () {
+  const mermaidConfig = {
+    startOnLoad: false,
+    theme: 'dark',
+    securityLevel: 'loose',
+    flowchart: { htmlLabels: true, useMaxWidth: true },
+    themeVariables: {
+      primaryColor: '#1e293b',
+      primaryTextColor: '#e2e8f0',
+      primaryBorderColor: '#38bdf8',
+      secondaryColor: '#0f172a',
+      tertiaryColor: '#334155',
+      lineColor: '#64748b',
+      textColor: '#e2e8f0',
+    }
+  };
+
+  mermaid.initialize(mermaidConfig);
+
+  function clamp(value, min, max) {
+    return Math.min(max, Math.max(min, value));
+  }
+
+  function enhanceMermaidDiagrams() {
+    document.querySelectorAll('.mermaid').forEach((container) => {
+      if (container.dataset.zoomReady === 'true') return;
+      const svg = container.querySelector('svg');
+      if (!svg) return;
+
+      container.dataset.zoomReady = 'true';
+      container.classList.add('is-enhanced');
+
+      const viewport = document.createElement('div');
+      viewport.className = 'mermaid-viewport';
+      svg.parentNode.insertBefore(viewport, svg);
+      viewport.appendChild(svg);
+
+      const toolbar = document.createElement('div');
+      toolbar.className = 'mermaid-toolbar';
+      toolbar.innerHTML = [
+        '<button type="button" data-action="zoom-out" title="Zoom out">-</button>',
+        '<span class="zoom-level" data-role="level">100%</span>',
+        '<button type="button" data-action="zoom-in" title="Zoom in">+</button>',
+        '<button type="button" data-action="fit" title="Fit width">Fit</button>',
+        '<button type="button" data-action="reset" title="Reset view">Reset</button>'
+      ].join('');
+      container.insertBefore(toolbar, viewport);
+
+      const state = { scale: 1, x: 0, y: 0, dragging: false, startX: 0, startY: 0, originX: 0, originY: 0 };
+      const level = toolbar.querySelector('[data-role="level"]');
+
+      function applyTransform() {
+        svg.style.transform = `translate(${state.x}px, ${state.y}px) scale(${state.scale})`;
+        level.textContent = `${Math.round(state.scale * 100)}%`;
+      }
+
+      function zoomBy(delta) {
+        state.scale = clamp(state.scale + delta, 0.25, 3);
+        applyTransform();
+      }
+
+      function reset() {
+        state.scale = 1;
+        state.x = 0;
+        state.y = 0;
+        applyTransform();
+      }
+
+      function fitWidth() {
+        const rawWidth = svg.viewBox && svg.viewBox.baseVal && svg.viewBox.baseVal.width
+          ? svg.viewBox.baseVal.width
+          : svg.getBoundingClientRect().width / state.scale;
+        if (!rawWidth) {
+          reset();
+          return;
+        }
+        state.scale = clamp((viewport.clientWidth - 48) / rawWidth, 0.25, 1.4);
+        state.x = 0;
+        state.y = 0;
+        applyTransform();
+      }
+
+      toolbar.addEventListener('click', (event) => {
+        const button = event.target.closest('button[data-action]');
+        if (!button) return;
+        const action = button.dataset.action;
+        if (action === 'zoom-in') zoomBy(0.15);
+        if (action === 'zoom-out') zoomBy(-0.15);
+        if (action === 'fit') fitWidth();
+        if (action === 'reset') reset();
+      });
+
+      viewport.addEventListener('wheel', (event) => {
+        if (!event.ctrlKey && !event.metaKey) return;
+        event.preventDefault();
+        zoomBy(event.deltaY < 0 ? 0.1 : -0.1);
+      }, { passive: false });
+
+      viewport.addEventListener('pointerdown', (event) => {
+        if (event.button !== 0) return;
+        state.dragging = true;
+        state.startX = event.clientX;
+        state.startY = event.clientY;
+        state.originX = state.x;
+        state.originY = state.y;
+        viewport.classList.add('is-dragging');
+        viewport.setPointerCapture(event.pointerId);
+      });
+
+      viewport.addEventListener('pointermove', (event) => {
+        if (!state.dragging) return;
+        state.x = state.originX + event.clientX - state.startX;
+        state.y = state.originY + event.clientY - state.startY;
+        applyTransform();
+      });
+
+      function endDrag(event) {
+        if (!state.dragging) return;
+        state.dragging = false;
+        viewport.classList.remove('is-dragging');
+        if (viewport.hasPointerCapture(event.pointerId)) {
+          viewport.releasePointerCapture(event.pointerId);
+        }
+      }
+
+      viewport.addEventListener('pointerup', endDrag);
+      viewport.addEventListener('pointercancel', endDrag);
+      applyTransform();
+    });
+  }
+
+  function renderMermaid() {
+    const result = mermaid.run
+      ? mermaid.run({ querySelector: '.mermaid' })
+      : Promise.resolve();
+    Promise.resolve(result)
+      .then(enhanceMermaidDiagrams)
+      .catch((error) => {
+        console.error('Mermaid render failed:', error);
+        enhanceMermaidDiagrams();
+      });
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', renderMermaid);
+  } else {
+    renderMermaid();
+  }
+})();
+</script>
+
+</body>
+</html>

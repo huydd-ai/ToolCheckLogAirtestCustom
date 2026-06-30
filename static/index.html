@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dagster Test Dashboard</title>
+<link rel="stylesheet" href="/static/styles.css">
+<script src="/static/vendor/chart.min.js"></script>
+<script src="/static/vendor/alpine.min.js" defer></script>
+</head>
+<body x-data="dashboard()">
+  <div class="container" x-cloak>
+    <h1>Dagster Test Dashboard 
+      <span x-show="loading" style="font-size: 14px; font-weight: normal; color: var(--text-dim);">updating...</span>
+      <span x-show="!online" style="font-size: 14px; font-weight: normal; color: var(--fail);">offline</span>
+    </h1>
+
+    <div class="tabs">
+      <button class="tab-btn" :class="{'active': tab === 'report'}" @click="tab = 'report'">Report</button>
+      <button class="tab-btn" :class="{'active': tab === 'catalog'}" @click="tab = 'catalog'">Test Catalog</button>
+    </div>
+
+    <div x-show="tab === 'report'">
+      <!-- Metrics Bar -->
+      <div class="summary-bar" x-show="metrics">
+        <div class="metric"><div class="label">Runs</div><div class="value" x-text="metrics?.total"></div></div>
+        <div class="metric"><div class="label">Pass Rate</div><div class="value" :class="{'pass': metrics?.pass_rate >= 80, 'fail': metrics?.pass_rate < 80}" x-text="(metrics?.pass_rate || 0) + '%'"></div></div>
+        <div class="metric"><div class="label">Failed</div><div class="value fail" x-text="metrics?.fail"></div></div>
+        <div class="metric"><div class="label">Flaky (last 10)</div><div class="value" :class="{'fail': metrics?.flaky > 0}" x-text="metrics?.flaky"></div></div>
+      </div>
+
+      <!-- Trend Chart -->
+      <div class="chart-container">
+        <canvas id="trendChart"></canvas>
+      </div>
+
+      <!-- Controls -->
+      <div class="controls">
+        <input type="text" id="dash-search" placeholder="Filter by test name…" x-model="searchQuery">
+        <button class="filter-pill" :class="{'active': filterStatus === 'all'}" @click="filterStatus = 'all'">All</button>
+        <button class="filter-pill" :class="{'active': filterStatus === 'PASS'}" @click="filterStatus = 'PASS'">Pass</button>
+        <button class="filter-pill" :class="{'active': filterStatus === 'FAIL'}" @click="filterStatus = 'FAIL'">Fail</button>
+        <button class="filter-pill" :class="{'active': filterStatus === 'FAILED_ONLY'}" @click="filterStatus = 'FAILED_ONLY'">Failed Only (including active)</button>
+        
+        <select class="filter-pill" x-model="filterDevice" style="background: var(--bg-card); color: var(--text-main);">
+          <option value="">All Devices</option>
+          <template x-for="dev in Array.from(new Set(runs.map(r => r.device)))">
+            <option :value="dev" x-text="dev"></option>
+          </template>
+        </select>
+
+        <select class="filter-pill" x-model="filterSuite" style="background: var(--bg-card); color: var(--text-main);">
+          <option value="">All Suites</option>
+          <template x-for="suite in Array.from(new Set(runs.map(r => r.suite)))">
+            <option :value="suite" x-text="suite"></option>
+          </template>
+        </select>
+      </div>
+
+      <!-- Runs List -->
+      <template x-for="(group, date) in groupedRuns" :key="date">
+        <details open>
+          <summary>
+            <div style="display: flex; align-items: center; gap: 16px;">
+              <span x-text="date"></span>
+              <span style="color: var(--text-dim); font-weight: normal; font-size: 14px;" x-text="group.length + ' runs'"></span>
+            </div>
+            <button class="action-btn" style="color: var(--fail); border-color: var(--fail);" @click.stop="deleteDate(date)">Delete All</button>
+          </summary>
+          <div class="group-content">
+            <ul>
+              <template x-for="r in group" :key="r.folder">
+                <li>
+                  <div class="run-main">
+                    <div class="run-main-top">
+                      <span class="badge" :class="r.status.toLowerCase()" x-text="r.status"></span>
+                      <a class="run-name" :href="`/${r.report_href}`" target="_blank" x-text="r.stem"></a>
+                    </div>
+                    <div x-show="r.error_summary" class="error-summary" x-text="r.error_summary"></div>
+                  </div>
+                  <div class="run-meta">
+                    <span style="font-family: monospace; font-size: 11px; color: var(--text-dim);" x-text="'📱 ' + r.device"></span>
+                    <span class="run-time" x-text="new Date(r.when).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', second:'2-digit'})"></span>
+                    <span class="run-duration" x-show="r.duration !== null" x-text="r.duration ? Math.round(r.duration) + 's' : ''"></span>
+                    
+                    <span x-show="jobs[r.folder]?.status" style="font-size: 11px; color: var(--text-dim);" x-text="jobs[r.folder].status"></span>
+                    <button class="action-btn rerun-btn" @click="rerunTest(r.folder)" :disabled="jobs[r.folder]?.status === 'running'">↺ Rerun</button>
+                    <button class="action-btn terminate-btn" x-show="jobs[r.folder]?.status === 'running'" @click="terminateTest(jobs[r.folder].job_id, r.folder)">⏹ Terminate</button>
+                    <button class="delete-btn" title="Delete Report" @click="deleteRun(r.folder)">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path></svg>
+                    </button>
+                  </div>
+                </li>
+              </template>
+            </ul>
+          </div>
+        </details>
+      </template>
+      <div x-show="Object.keys(groupedRuns).length === 0" style="text-align: center; padding: 40px; color: var(--text-dim); background: var(--bg-card); border-radius: 8px; border: 1px dashed var(--border);">
+        No test runs match your filters.
+      </div>
+    </div>
+
+    <div x-show="tab === 'catalog'">
+      <template x-for="(tests, suite) in catalog" :key="suite">
+        <details open>
+          <summary>
+            <div style="display: flex; align-items: center; gap: 16px;">
+              <span x-text="suite"></span>
+              <span style="color: var(--text-dim); font-weight: normal; font-size: 14px;" x-text="tests.length + ' tests'"></span>
+            </div>
+            <button class="action-btn rerun-btn" @click.prevent.stop="runSuite(suite)">▶ Run All</button>
+          </summary>
+          <div class="group-content">
+            <ul>
+              <template x-for="t in tests" :key="t">
+                <li>
+                  <div class="run-main">
+                    <span class="run-name" x-text="t"></span>
+                  </div>
+                  <div class="run-meta">
+                    <span x-show="jobs[t]?.status" style="font-size: 11px; color: var(--text-dim);" x-text="jobs[t].status"></span>
+                    <button class="action-btn rerun-btn" @click="runCatalogTest(suite, t)" :disabled="jobs[t]?.status === 'running'">▶ Run</button>
+                    <button class="action-btn terminate-btn" x-show="jobs[t]?.status === 'running'" @click="terminateTest(jobs[t].job_id, t)">⏹ Terminate</button>
+                  </div>
+                </li>
+              </template>
+            </ul>
+          </div>
+        </details>
+      </template>
+    </div>
+
+  </div>
+  <script src="/static/app.js"></script>
+</body>
+</html>
