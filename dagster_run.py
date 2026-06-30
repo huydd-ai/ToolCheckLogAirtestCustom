@@ -39,14 +39,36 @@ def main():
 
     # 2. CLI Argument Parsing
     parser = argparse.ArgumentParser(description="Dagster runner")
-    parser.add_argument("target", nargs="+", help="Paths or globs to .air projects")
+    parser.add_argument("target", nargs="*", help="Paths or globs to .air projects (omit with --delete to only clean reports)")
     parser.add_argument("--device", type=str, default=None, help="Specific device serial to connect to")
     parser.add_argument("--shard-index", type=int, default=0, help="Shard index (0-indexed)")
     parser.add_argument("--shard-total", type=int, default=1, help="Total number of shards")
     parser.add_argument("--mode", choices=["tester", "dev"], default="tester", help="Execution mode (tester=full artifacts, dev=filtered logs)")
+    parser.add_argument("--delete", type=str, default=None, help="Delete report folders matching glob pattern (e.g. '*_20260630_*' or 'test_*')")
+    parser.add_argument("--delete-older-than", type=int, default=None, help="Delete report folders older than N days")
     args, _ = parser.parse_known_args(sys.argv[1:])
 
+    # 2b. Setup report directory (used for cleanup or test runs)
+    report_root = _dagster_dir / "report_run"
+    report_root.mkdir(parents=True, exist_ok=True)
+
+    # 2c. Handle report cleanup if requested
+    if args.delete or args.delete_older_than:
+        from dagster.cleanup import delete_reports_by_pattern, delete_reports_older_than
+
+        deleted_count = 0
+        if args.delete:
+            deleted_count += delete_reports_by_pattern(report_root, args.delete)
+        if args.delete_older_than:
+            deleted_count += delete_reports_older_than(report_root, args.delete_older_than)
+
+        print(f"[INFO] Total reports deleted: {deleted_count}")
+        sys.exit(0)
+
     # 3. Test Discovery
+    if not args.target:
+        sys.exit("[ERROR] target required when not using --delete or --delete-older-than")
+
     tests_set = set()
     for target in args.target:
         matches = _glob.glob(target, recursive=True)
@@ -98,10 +120,6 @@ def main():
 
     from pixon.common.adb_utils import set_default_serial
     set_default_serial(device_id)
-
-    # 5. Output Configuration
-    report_root = _dagster_dir / "report_run"
-    report_root.mkdir(parents=True, exist_ok=True)
 
     # 6. Execute Tests
     run_had_failure = False
