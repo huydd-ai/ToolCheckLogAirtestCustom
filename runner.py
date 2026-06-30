@@ -15,6 +15,12 @@ from dagster.OpenCVAnnotator import OpenCVAnnotator
 def run_single_test(air_path: Path, py_script: Path, mode: str, device_id: str, report_root: Path) -> bool:
     """Run a single Airtest module, capture steps, video, and generate report. Returns True if failed."""
     module_name = py_script.stem
+
+    from pixon.common.adb_utils import check_device_health
+    if not check_device_health(device_id):
+        print(f"[FAIL] {module_name} (Device {device_id} failed health check)", file=sys.stderr)
+        return True
+
     t0 = time.time()
     ts_str = datetime.now().strftime("%Y%m%d_%H%M%S")
     out_dir = report_root / f"{air_path.stem}_{ts_str}"
@@ -35,7 +41,7 @@ def run_single_test(air_path: Path, py_script: Path, mode: str, device_id: str, 
             fps=60,
             max_fps=60,
             max_width=480,
-            bitrate=16_000_000,
+            bitrate=8_000_000,
             stay_awake=True,
             device=device_id or None,
         )
@@ -52,13 +58,46 @@ def run_single_test(air_path: Path, py_script: Path, mode: str, device_id: str, 
 
     try:
         import runpy
-        mod = runpy.run_path(str(py_script))
-        if "main" in mod:
-            mod["main"]()
-            print(f"[PASS] {module_name}")
-        else:
-            status = "SKIP"
-            print(f"[SKIP] {module_name} (no main function)")
+        from pixon.common.adb_errors import AdbDeviceOfflineError
+        
+        max_test_retries = 2
+        for attempt in range(max_test_retries):
+            try:
+                mod = runpy.run_path(str(py_script))
+                if "main" in mod:
+                    mod["main"]()
+                    status = "PASS"
+                    print(f"[PASS] {module_name}")
+                else:
+                    status = "SKIP"
+                    print(f"[SKIP] {module_name} (no main function)")
+                break  # Exit retry loop on success or skip
+            except AdbDeviceOfflineError as e:
+                print(f"[WARN] Device {device_id} disconnected during {module_name} (attempt {attempt + 1}/{max_test_retries}). Waiting 10s...", file=sys.stderr)
+                if attempt < max_test_retries - 1:
+                    time.sleep(10)
+                    for wait_attempt in range(4):
+                        try:
+                            from airtest.core.api import connect_device
+                            uri = f"Android://127.0.0.1:5037/{device_id}?cap_method=MINICAP&ori_method=ADBORI"
+                            connect_device(uri)
+                            if check_device_health(device_id):
+                                print(f"[INFO] Device {device_id} recovered successfully.", file=sys.stderr)
+                                break
+                        except Exception as conn_err:
+                            print(f"[WARN] Reconnect attempt {wait_attempt+1} failed: {conn_err}", file=sys.stderr)
+                        time.sleep(5)
+                    continue
+                else:
+                    error_top = e
+                    status = "FAIL"
+                    print(f"[FAIL] {module_name} (Device Offline): {e}")
+                    break
+            except Exception as e:
+                error_top = e
+                status = "FAIL"
+                print(f"[FAIL] {module_name}: {e}")
+                break
     except Exception as e:
         error_top = e
         status = "FAIL"

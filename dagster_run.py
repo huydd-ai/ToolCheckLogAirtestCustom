@@ -69,16 +69,32 @@ def main():
         print(f"[INFO] Running shard {args.shard_index + 1}/{args.shard_total} ({len(tests)} tests)")
 
     # 4. Device Connection
-    # cap_method=MINICAP for screen capture; ori_method=ADBORI gets orientation
-    # via adb instead of minicap's rotation watcher (avoids rotation glitches).
+    from dagster.device_manager import device_manager
+    
     if args.device:
+        caps = device_manager.check_health(args.device)
+        if not caps:
+            sys.exit(f"[ERROR] Device {args.device} is not healthy or not found.")
+            
         uri = args.device if args.device.lower().startswith("android://") else f"Android://127.0.0.1:5037/{args.device}"
         uri += ("&" if "?" in uri else "?") + "cap_method=MINICAP&ori_method=ADBORI"
         connect_device(uri)
         device_id = args.device.rsplit("/", 1)[-1]
     else:
-        init_device(cap_method="MINICAP", ori_method="ADBORI")
-        device_id = G.DEVICE.serialno
+        healthy_devices = device_manager.get_healthy_devices()
+        if not healthy_devices:
+            sys.exit("[ERROR] No healthy devices found in pool.")
+            
+        # Try to align device with shard index if possible
+        if len(healthy_devices) > args.shard_index:
+            chosen = healthy_devices[args.shard_index]
+        else:
+            chosen = healthy_devices[0]
+            print(f"[WARN] Not enough healthy devices for shard {args.shard_index}. Using device {chosen.serial}.")
+            
+        device_id = chosen.serial
+        uri = f"Android://127.0.0.1:5037/{device_id}?cap_method=MINICAP&ori_method=ADBORI"
+        connect_device(uri)
 
     from pixon.common.adb_utils import set_default_serial
     set_default_serial(device_id)
