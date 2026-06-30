@@ -147,12 +147,17 @@ class ReportHandler(SimpleHTTPRequestHandler):
                 self.wfile.write(json.dumps({"error": "not found"}).encode())
                 return
             try:
+                # Clear logs and all files inside the folder
+                log_files = []
+                for item in target.iterdir():
+                    if item.is_file() and item.suffix in ('.txt', '.log') or item.name.startswith('log'):
+                        log_files.append(item.name)
                 shutil.rmtree(target)
                 regenerate_global_report(REPORT_ROOT)
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
                 self.end_headers()
-                self.wfile.write(json.dumps({"deleted": folder_name}).encode())
+                self.wfile.write(json.dumps({"deleted": folder_name, "logs_cleared": log_files}).encode())
             except OSError as e:
                 self.send_response(500)
                 self.send_header("Content-Type", "application/json")

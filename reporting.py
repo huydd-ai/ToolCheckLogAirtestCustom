@@ -103,7 +103,11 @@ def write_log_txt(
     for step in steps:
         screenshot = step["screenshot"] or "-"
         clean_name = step['name'].strip()
-        base_line = f"{clean_name}: {step['action']}, {screenshot}, {step['status']}"
+        if step["status"] == "INFO":
+            base_line = f"{clean_name}: {screenshot}, {step['status']}"
+        else:
+            base_line = f"{clean_name}: {step['action']}, {screenshot}, {step['status']}"
+        
         if step["behaviour"]:
             lines.append(f"{base_line}, {step['behaviour']}")
         else:
@@ -113,7 +117,7 @@ def write_log_txt(
     log_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
-_VALID_STEP_STATUSES = {"PASS", "FAIL"}
+_VALID_STEP_STATUSES = {"PASS", "FAIL", "INFO"}
 
 # Per-run report CSS. Plain string (single braces) so it injects cleanly into the
 # head f-string below. Colors come from THEME_CSS :root vars — shared with the dashboard.
@@ -174,10 +178,13 @@ td{padding:8px 12px;border-bottom:1px solid var(--bg-item);font-size:13px;vertic
 tr.pass{background:transparent}
 tr.fail{background:rgba(239,68,68,.07)}
 tr.fail:hover{background:rgba(239,68,68,.13)}
+tr.info{background:transparent}
+tr.info:hover{background:rgba(59,130,246,.05)}
 tr.pass:hover{background:var(--bg-item)}
 .status-badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700;min-width:44px;text-align:center}
 .status-badge.pass{background:rgba(16,185,129,.15);color:var(--pass);border:1px solid rgba(16,185,129,.3)}
 .status-badge.fail{background:rgba(239,68,68,.15);color:var(--fail);border:1px solid rgba(239,68,68,.3)}
+.status-badge.info{background:rgba(59,130,246,.15);color:#3b82f6;border:1px solid rgba(59,130,246,.3)}
 td .screenshot{max-width:72px;max-height:54px;border-radius:4px;border:1px solid var(--border);cursor:pointer;vertical-align:middle}
 td .error-text{color:var(--fail);font-size:12px;max-width:400px;white-space:pre-wrap;word-break:break-word;cursor:pointer}
 .no-runs{text-align:center;padding:40px;color:var(--text-dim);font-style:italic}
@@ -207,9 +214,9 @@ def generate_summary_report(
     status_cls = {"PASS": "pass", "FAIL": "fail"}.get(status, "skip")
     safe_status = _html.escape(status)
     safe_tc_name = _html.escape(tc_name)
-    total = len(steps)
     passed = sum(1 for s in steps if s["status"] == "PASS")
     failed = sum(1 for s in steps if s["status"] == "FAIL")
+    total = passed + failed
     total_duration = sum(s.get("duration") or 0 for s in steps)
 
     first_fail = next((s for s in steps if s["status"] == "FAIL"), None)
@@ -277,17 +284,32 @@ def generate_summary_report(
     parts.append("""<table id="step-table">
 <thead><tr><th>#</th><th>Step</th><th>Action</th><th>Status</th><th>Screenshot</th><th>Duration</th><th>Error</th></tr></thead><tbody>""")
 
-    if total == 0:
+    if len(steps) == 0:
         parts.append('<tr><td colspan="7" class="no-runs">No steps captured</td></tr>')
     else:
-        for i, s in enumerate(steps, 1):
+        step_idx = 1
+        for s in steps:
             raw_status = s["status"] if s["status"] in _VALID_STEP_STATUSES else "FAIL"
-            row_cls = "pass" if raw_status == "PASS" else "fail"
+            if raw_status == "PASS": row_cls = "pass"
+            elif raw_status == "INFO": row_cls = "info"
+            else: row_cls = "fail"
+            
             safe_name = _html.escape(s["name"])
             safe_action = _html.escape(s["action"])
             safe_behaviour = _html.escape(s["behaviour"] or "")
             dur = s.get("duration") or 0
             dur_str = f"{dur:.2f}s"
+            
+            # For INFO milestones, omit step number, action, and duration.
+            if raw_status == "INFO":
+                idx_display = ""
+                safe_action = ""
+                dur_str = ""
+                # Optionally make the text bolder
+                safe_name = f"<strong>{safe_name}</strong>"
+            else:
+                idx_display = str(step_idx)
+                step_idx += 1
 
             screenshot_html = ""
             if s.get("screenshot"):
@@ -299,7 +321,7 @@ def generate_summary_report(
                 error_html = f'<div class="error-text" title="{safe_behaviour}">{safe_behaviour}</div>'
 
             parts.append(f"""<tr class="{row_cls}" data-status="{row_cls}">
-<td>{i}</td>
+<td>{idx_display}</td>
 <td class="step-name">{safe_name}</td>
 <td>{safe_action}</td>
 <td><span class="status-badge {row_cls}">{raw_status}</span></td>

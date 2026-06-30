@@ -13,6 +13,8 @@ _orig_run_step = _tf.run_step
 
 from dagster.log_utils import latest_screenshot as _latest_screenshot
 from dagster.OpenCVAnnotator import OpenCVAnnotator as _Annotator
+import pixon.common.logging_utils as _lu
+_orig_log_info = _lu.log_info
 
 
 def get_current() -> str | None:
@@ -100,8 +102,36 @@ def _hooked_run_step(name: str, action: Callable[..., Any], *args: Any, **kwargs
             pass
 
 
+def _hooked_log_info(msg: str, snapshot: bool = True) -> None:
+    _orig_log_info(msg, snapshot=snapshot)
+    
+    msg_strip = msg.strip()
+    # Intercept milestones to show in Tester View
+    if msg_strip.startswith("Start:") or msg_strip.startswith("End:") or msg_strip.startswith("Result:") or msg_strip.startswith("[Step") or "100% complete" in msg_strip:
+        step = {
+            "name": msg,
+            "action": "log_info",
+            "status": "INFO",
+            "screenshot": _latest_screenshot() if snapshot else None,
+            "behaviour": None,
+            "duration": 0.0,
+        }
+        _steps.append(step)
+        
+        try:
+            _Annotator().add_step(
+                name=step["name"],
+                action=step["action"],
+                screenshot_path=step.get("screenshot"),
+                status=step.get("status"),
+                timestamp=_datetime.now().strftime("%H:%M:%S"),
+            )
+        except Exception:
+            pass
+
 def patch_run_step():
     _tf.run_step = _hooked_run_step
+    _lu.log_info = _hooked_log_info
 
 
 def clear_steps():

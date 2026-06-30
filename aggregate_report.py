@@ -523,7 +523,7 @@ async function rerunTest(btn, folder) {
   }
 }
 
-function pollRerunStatus(btn, folder, jobId, statusEl, termBtn, logsBtn, preEl, logsContainer) {
+function pollRerunStatus(btn, folder, jobId, statusEl, termBtn, logsBtn, preEl, logsContainer, onComplete) {
   var intervalId = setInterval(async function() {
     try {
       var off = _runOffsets[jobId] || 0;
@@ -544,24 +544,25 @@ function pollRerunStatus(btn, folder, jobId, statusEl, termBtn, logsBtn, preEl, 
         clearInterval(intervalId);
         _activeRuns = Math.max(0, _activeRuns - 1);
         btn.disabled = false;
-        btn.textContent = '↺ Rerun';
+        btn.textContent = btn.hasAttribute('data-is-catalog') ? '▶ Run' : '↺ Rerun';
         if (termBtn) termBtn.style.display = 'none';
         if (statusEl) statusEl.textContent = data.status === 'done' ? '✓ Done' : '✗ Failed';
-        refreshRunList();
+        if (typeof onComplete === 'function') onComplete(); else refreshRunList();
       }
     } catch (err) {
       clearInterval(intervalId);
       _activeRuns = Math.max(0, _activeRuns - 1);
       btn.disabled = false;
-      btn.textContent = '↺ Rerun';
+      btn.textContent = btn.hasAttribute('data-is-catalog') ? '▶ Run' : '↺ Rerun';
       if (termBtn) termBtn.style.display = 'none';
       if (statusEl) statusEl.textContent = 'Error';
+      if (typeof onComplete === 'function') onComplete();
     }
   }, 2000);
 }
 
 async function refreshRunList() {
-  if (_activeRuns > 0) return;  // don't reload mid-rerun — it'd kill the live log view
+  if (_activeRuns > 0 || _isQueueRunning) return;  // don't reload mid-rerun — it'd kill the live log view
   try {
     var headers = _runsEtag ? {'If-None-Match': _runsEtag} : {};
     var r = await fetch('/api/runs', {headers: headers});
@@ -598,6 +599,45 @@ function toggleDevice(card) {
     card.classList.add('active');
   }
   applyDashboardFilters();
+}
+var _runQueue = [];
+var _isQueueRunning = false;
+
+async function runAllTests(btn) {
+  var details = btn.closest('details');
+  var rerunBtns = details.querySelectorAll('.run-meta .rerun-btn:not(.run-all-btn)');
+  if (rerunBtns.length === 0) return;
+  
+  btn.disabled = true;
+  var origText = btn.textContent;
+  btn.textContent = 'Running All…';
+  
+  for (var i = 0; i < rerunBtns.length; i++) {
+    var b = rerunBtns[i];
+    var match = b.getAttribute('onclick').match(/runCatalogTest\(this,\s*'([^']+)',\s*'([^']+)'\)/);
+    if (match) {
+      _runQueue.push({ btn: b, key: match[1], airPath: match[2] });
+    }
+  }
+  
+  if (!_isQueueRunning) {
+    _isQueueRunning = true;
+    await processRunQueue();
+  }
+  
+  btn.textContent = origText;
+  btn.disabled = false;
+}
+
+async function processRunQueue() {
+  while (_runQueue.length > 0) {
+    var task = _runQueue.shift();
+    await new Promise(resolve => {
+      runCatalogTest(task.btn, task.key, task.airPath, resolve);
+    });
+  }
+  _isQueueRunning = false;
+  refreshRunList();
 }
 
 function applyDashboardFilters() {
@@ -645,8 +685,9 @@ function showTab(name) {
   if (btn) btn.classList.add('active');
 }
 
-async function runCatalogTest(btn, key, airPath) {
+async function runCatalogTest(btn, key, airPath, onComplete) {
   btn.disabled = true;
+  btn.setAttribute('data-is-catalog', 'true');
   var orig = btn.textContent;
   btn.textContent = '…';
   var statusEl = document.getElementById('cat-status-' + key);
@@ -672,10 +713,11 @@ async function runCatalogTest(btn, key, airPath) {
     if (logsContainer) logsContainer.style.display = 'flex';
     _runOffsets[data.job_id] = 0;
     _activeRuns++;
-    pollRerunStatus(btn, key, data.job_id, statusEl, termBtn, null, preEl, logsContainer);
+    pollRerunStatus(btn, key, data.job_id, statusEl, termBtn, null, preEl, logsContainer, onComplete);
   } catch (err) {
     btn.disabled = false; btn.textContent = orig;
     if (statusEl) statusEl.textContent = 'Server offline';
+    if (typeof onComplete === 'function') onComplete();
   }
 }
 """
@@ -748,7 +790,10 @@ def _append_catalog(html: list[str], catalog: list[tuple[str, list[dict]]]) -> N
     idx = 0
     for suite, tests in catalog:
         html.append('<details open class="suite-group">')
-        html.append(f'<summary class="suite-summary"><span>{escape(suite)}</span> &mdash; {len(tests)} tests</summary>')
+        html.append(f'<summary class="suite-summary" style="display: flex; align-items: center;">')
+        html.append(f'<span style="flex: 1;"><span>{escape(suite)}</span> &mdash; {len(tests)} tests</span>')
+        html.append(f'<button class="rerun-btn run-all-btn" onclick="runAllTests(this)" title="Run all tests in {escape(suite)}" style="margin-right: 16px;">▶ Run All</button>')
+        html.append('</summary>')
         html.append('<div class="group-content"><ul>')
         for t in tests:
             key = f"cat{idx}"
