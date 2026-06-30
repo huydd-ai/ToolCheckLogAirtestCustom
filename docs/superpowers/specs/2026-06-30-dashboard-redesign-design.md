@@ -38,7 +38,7 @@ triage, and live updates while tests run.
   - Running jobs tracked in in-memory `_jobs` dict, guarded by `_jobs_lock`.
 
 What's missing: aggregate stats, pass-rate %, trend charts, flakiness, inline error
-snippets, live refresh, and a *list* view of all running jobs.
+snippets, live refresh.
 
 ## Architecture
 
@@ -57,10 +57,12 @@ generator consume one source of truth.
 - `compute_metrics(runs) -> Metrics`:
   - totals: count, pass / fail / skip
   - `pass_rate` (%) overall
-  - `by_suite`, `by_device` breakdowns (counts + pass-rate)
   - `trend`: list of `(date, total, pass_rate)` ordered ascending — pass-rate over time
-  - `flaky`: tests whose status flips across the most recent N runs of the same stem
-    (N configurable, default 10). A test is flaky if it has ≥1 PASS and ≥1 FAIL in window.
+  - `flaky`: tests whose status flips across the most recent 10 runs of the same stem
+    (≥1 PASS and ≥1 FAIL in window).
+
+  No `by_suite` / `by_device` breakdowns (ponytail) — the suite/device *filters* derive
+  from `runs[]` client-side; nothing renders precomputed breakdowns.
 
 **Dependencies:** stdlib + existing regexes from `aggregate_report.py`. No device, no Airtest.
 **Testable headless:** unit tests build fixture folders / `RunEntry` lists and assert metrics.
@@ -82,13 +84,12 @@ or **new** — most of the live-update machinery already exists.
 - **[new] `GET /api/catalog`** — suites/tests via existing `scan_catalog` (move to `report_data.py`).
 - **[reuse] `GET /rerun-status/<job_id>`** — already returns `{status, new_folder, exit_code}`
   and reaps exited procs. SPA uses it for single-job live status after a rerun/run. No change.
-- **[new] `GET /api/jobs`** — *list* view of all running jobs (the one genuinely new route).
-  `_jobs` holds non-serializable `proc` + `log_file`, so the handler must:
-  1. hold `_jobs_lock` for the read,
-  2. **reap exited procs on read** (poll `proc`, flip `running`→`done`/`failed`), same as
-     `_find_running_job` / `/rerun-status` — else it reports stale `running`,
-  3. emit a **field whitelist** only: `[{job_id, suite, stem, status, exit_code, started}]`.
-  SPA merges `/api/jobs` (in-flight) with `/api/runs` (completed folders).
+
+No `/api/jobs` list endpoint (ponytail). Running tests surface two ways already:
+`/rerun-status/<job_id>` polls the job *this tab* started, and the mtime-aware `/api/runs`
+picks up a running test's folder as soon as it's created (status `UNKNOWN` until `log.txt`
+gets `Status:`). A list-of-all-jobs view only adds cross-browser-tab visibility — not needed
+on a single-user local tool. Add it later if multi-tab ever becomes real.
 
 Existing POST actions (`/delete/...`, `/delete-date/...`, rerun, run, terminate) **already
 return JSON** (e.g. `/delete/` → `{deleted, logs_cleared}`). Audit each for a consistent
@@ -102,9 +103,8 @@ shape the SPA can consume — do **not** rewrite ones that already work.
 - `static/styles.css` — imports/reuses `THEME_CSS` palette; card-based layout, responsive grid.
 - `static/app.js` — single Alpine component:
   - On load + every ~3s: `fetch('/api/runs', {headers: {'If-None-Match': lastEtag}})`;
-    on 304 do nothing, on 200 store data + etag. Also fetch `/api/jobs` each tick (cheap,
-    in-memory) and merge running jobs into the run list. After a rerun/run POST, poll that
-    job via the existing `/rerun-status/<job_id>` until done. Periodically refresh `/api/metrics`.
+    on 304 do nothing, on 200 store data + etag. After a rerun/run POST, poll that job via
+    the existing `/rerun-status/<job_id>` until done. Periodically refresh `/api/metrics`.
   - Sections:
     1. **Metrics bar** — cards: total runs, pass-rate % (large), fail count, flaky count.
     2. **Trend chart** — Chart.js: pass-rate line + runs/day bar over `metrics.trend`.
@@ -140,9 +140,9 @@ report_run/ folders ──scan(1 head read)──> report_data.scan_runs() ─�
                           ▼               │
                      /api/metrics         │
                                           │
-   _jobs dict (in-memory) ──> /api/jobs   │
-                                  │       │
-                                  └───────┴──> SPA (Alpine) ──poll──> merge+render
+   _jobs dict ──> /rerun-status/<id>      │
+                       (per-job poll) │       │
+                                      └───────┴──> SPA (Alpine) ──poll──> render
                                                      │
                                                 POST actions ──> report_server handlers
 ```
@@ -166,7 +166,7 @@ report_run/ folders ──scan(1 head read)──> report_data.scan_runs() ─�
 | `/api/runs` 200 payload, ~500 runs | < 300 ms |
 | Initial dashboard render, ~500 runs | < 1 s |
 | Client-side filter / search | < 100 ms (no server round-trip) |
-| `/api/jobs` (in-memory) | < 20 ms |
+| `/rerun-status/<id>` (in-memory) | < 20 ms |
 
 ## Testing
 
@@ -182,17 +182,20 @@ report_run/ folders ──scan(1 head read)──> report_data.scan_runs() ─�
 1. `report_data.py` refactor + **single-head-read** for scan + `compute_metrics`
    (trend, flaky) + `error_summary` + unit tests.
 2. JSON API: **modify** `/api/runs` (stub → payload, ETag = names + mtimes), **add**
-   `/api/metrics` + `/api/catalog` + `/api/jobs` (lock + reap-on-read + field whitelist),
-   **reuse** `/rerun-status`; 304 + tests; audit POST-action JSON shapes.
+   `/api/metrics` + `/api/catalog`, **reuse** `/rerun-status`; 304 + tests;
+   audit POST-action JSON shapes.
 3. Vendor Alpine + Chart.js into `static/vendor/`; SPA shell: run list + filters at parity
    with current dashboard.
 4. Metrics bar + trend charts.
-5. Live polling + running-test reflection (merge `/api/jobs` + `/api/runs`).
+5. Live polling: `/api/runs` mtime-ETag + `/rerun-status` after rerun/run.
 6. Triage: inline error snippets, failed-only toggle, deep links.
 
 ## Out of scope (YAGNI)
 
 - No node/Vite build, no React.
 - No SSE (polling chosen).
+- No `/api/jobs` list endpoint — per-job `/rerun-status` + mtime-aware `/api/runs` cover
+  the single-user case; a list view only helps cross-tab, which nobody needs yet.
+- No `by_suite` / `by_device` precomputed breakdowns — filters derive client-side.
 - No DB / persistence layer — folders remain source of truth, scanned live.
 - No auth (local tool, unchanged from today).
