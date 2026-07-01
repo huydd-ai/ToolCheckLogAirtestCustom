@@ -30,7 +30,7 @@ sys.path.insert(0, str(_project_root))
 PROJECT_ROOT = _project_root
 TEST_ROOT = (_project_root / "Test").resolve()
 
-from dagster.aggregate_report import parse_run_folder_name, regenerate_global_report
+from dagster.reports.aggregate_report import parse_run_folder_name, regenerate_global_report
 
 
 def extract_air_path(log_path: Path) -> str | None:
@@ -235,8 +235,8 @@ class ReportHandler(SimpleHTTPRequestHandler):
         self.end_headers()
 
     def _handle_emulator_start(self) -> None:
-        from dagster import ldplayer_ctl
-        from dagster.device_manager import device_manager
+        from dagster.device import ldplayer_ctl
+        from dagster.device.device_manager import device_manager
         # Idempotent: already-booted device -> ready now, no launch, no stabilize wait.
         try:
             if device_manager.get_healthy_devices():
@@ -255,7 +255,7 @@ class ReportHandler(SimpleHTTPRequestHandler):
             self._json(504, {"error": "emulator did not become ready"})
 
     def _handle_emulator_stop(self) -> None:
-        from dagster import ldplayer_ctl
+        from dagster.device import ldplayer_ctl
         # Guard: another run still needs the emulator -> keep it (single instance).
         if _any_job_running():
             self._json(200, {"status": "kept", "reason": "job running"})
@@ -422,9 +422,9 @@ class ReportHandler(SimpleHTTPRequestHandler):
 
     def _handle_api_runs(self) -> None:
         try:
-            from dagster.report_data import scan_runs
+            from dagster.reports.report_data import scan_runs
             runs = scan_runs(REPORT_ROOT)
-            
+
             folder_info = []
             for r in runs:
                 log_path = REPORT_ROOT / r.folder / "log.txt"
@@ -448,7 +448,7 @@ class ReportHandler(SimpleHTTPRequestHandler):
 
     def _handle_api_metrics(self) -> None:
         try:
-            from dagster.report_data import scan_runs, compute_metrics
+            from dagster.reports.report_data import scan_runs, compute_metrics
             runs = scan_runs(REPORT_ROOT)
             metrics = compute_metrics(runs)
             self._json(200, metrics)
@@ -457,7 +457,7 @@ class ReportHandler(SimpleHTTPRequestHandler):
 
     def _handle_api_catalog(self) -> None:
         try:
-            from dagster.report_data import scan_catalog
+            from dagster.reports.report_data import scan_catalog
             catalog = scan_catalog(TEST_ROOT)
             self._json(200, catalog)
         except Exception as e:

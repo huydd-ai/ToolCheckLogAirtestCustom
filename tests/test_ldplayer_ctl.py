@@ -1,5 +1,5 @@
 import pytest
-from ldplayer_ctl import wait_ready
+from dagster.device.ldplayer_ctl import wait_ready
 
 
 def test_wait_ready_true_and_stabilizes_when_device_appears():

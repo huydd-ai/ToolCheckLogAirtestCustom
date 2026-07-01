@@ -1,7 +1,7 @@
 """Shared dark-theme CSS for the dashboard and per-run report.
 
 Single source of truth so both pages match. Imported (dual-context: runtime
-uses ``dagster.report_theme``, tests run from ``dagster/`` use bare
+uses ``dagster.reports.report_theme``, run from ``dagster/reports/`` use bare
 ``report_theme``) and inlined into each generated page's ``<style>``.
 """
 

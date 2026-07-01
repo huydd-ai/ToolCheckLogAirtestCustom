@@ -25,17 +25,17 @@ sys.path.insert(0, str(_dagster_dir))
 
 from airtest.core.api import connect_device, init_device, G
 
-from dagster.log_utils import setup_console_logging, LOG_LEVEL
+from dagster.capture.log_utils import setup_console_logging, LOG_LEVEL
 from dagster.runner import run_single_test
-from dagster.step_capture import patch_run_step
-from dagster.aggregate_report import regenerate_global_report
+from dagster.capture.step_capture import patch_run_step
+from dagster.reports.aggregate_report import regenerate_global_report
 
 def main():
     # 1. Setup Environment & Capture Hooks
     setup_console_logging(LOG_LEVEL)
     patch_run_step()
 
-    from dagster.error_capture import attach_error_handler
+    from dagster.capture.error_capture import attach_error_handler
     attach_error_handler()  # pixon by default
     attach_error_handler("airtest")
 
@@ -93,7 +93,7 @@ def main():
         print(f"[INFO] Running shard {args.shard_index + 1}/{args.shard_total} ({len(tests)} tests)")
 
     # 4. Device Connection
-    from dagster.device_manager import device_manager
+    from dagster.device.device_manager import device_manager
     
     if args.device:
         caps = device_manager.check_health(args.device)

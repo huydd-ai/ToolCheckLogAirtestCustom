@@ -1,5 +1,5 @@
 import pytest
-import report_server as rs
+import dagster.report_server as rs
 
 
 class _FakeProc:

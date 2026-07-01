@@ -3,7 +3,7 @@ import os
 import pytest
 from pathlib import Path
 from datetime import datetime, timedelta
-from report_data import RunEntry, compute_metrics, extract_error_from_airtest_log
+from dagster.reports.report_data import RunEntry, compute_metrics, extract_error_from_airtest_log
 
 def test_compute_metrics():
     now = datetime.now()

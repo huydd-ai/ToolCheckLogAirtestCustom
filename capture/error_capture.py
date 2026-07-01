@@ -2,7 +2,7 @@ import logging
 import time
 from typing import Any
 
-from dagster.log_utils import latest_screenshot
+from dagster.capture.log_utils import latest_screenshot
 
 _errors: list[dict[str, Any]] = []
 
@@ -17,7 +17,7 @@ class ErrorCaptureHandler(logging.Handler):
         except Exception:
             msg = str(record.msg)
 
-        from dagster.step_capture import get_current as _cur_step
+        from dagster.capture.step_capture import get_current as _cur_step
         current_step = _cur_step()
 
         screen = None

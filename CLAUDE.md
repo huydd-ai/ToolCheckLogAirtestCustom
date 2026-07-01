@@ -8,10 +8,11 @@ Custom Airtest test runner + scrcpy screen recorder for the **Screw Land** autom
 
 **NOT the Dagster orchestration framework** — "dagster" is only the repo/dir name. There is zero `import dagster`. The runner is built on Airtest (`airtest.core.api`) plus the host `pixon` package. (Per-run reports are a custom HTML page; Airtest's `LogToHtml` is no longer used.)
 
-Three runnable files (full prose guide: `README.md`):
-- `dagster_run.py` — **primary** runner. Structured per-step logging + per-step HTML report + scrcpy recording.
-- `pixon_run.py` — legacy minimal runner. Connects device, runs `.air`, no structured logging/report.
-- `ScrcpyRecorder.py` — subprocess wrapper around `scrcpy-win64/scrcpy.exe` → MP4.
+Two entrypoints, both at `dagster/` root (full prose guide: `README.md`):
+- `dagster_run.py` — CLI runner. Structured per-step logging + per-step HTML report + scrcpy recording.
+- `report_server.py` — local HTTP server for the global dashboard (`python dagster/report_server.py --port 7070`).
+
+Everything else lives in subfolders — see **Layout** below.
 
 ## Host dependency (critical — this repo is not self-running)
 
@@ -21,13 +22,27 @@ This repo is a tool meant to be checked out as the `dagster/` subdir of a **host
 
 A standalone clone (no sibling `pixon/` + `Test/`) will fail at `import pixon...`. The runner is intentionally non-invasive: it never writes into `../pixon/` or `../Test/`.
 
+## Layout
+
+`dagster/` is itself an importable package (`__init__.py` at its root) — every internal import is package-qualified (`from dagster.reports.reporting import ...`), never a bare sibling import. `dagster_run.py` puts the **project root** (not `dagster/`) on `sys.path` so `dagster.*` resolves.
+
+```
+dagster/
+  dagster_run.py, report_server.py   # entrypoints — stay at root, invoked by exact path
+  runner.py, config.py, cleanup.py   # small root-level shared utilities
+  recording/   ScrcpyRecorder.py, OpenCVRecorder.py, OpenCVAnnotator.py
+  capture/     step_capture.py, error_capture.py, log_utils.py
+  reports/     reporting.py, report_theme.py, report_data.py, aggregate_report.py
+  device/      device_manager.py, ldplayer_ctl.py
+  tests/       test_report_data.py, test_ldplayer_ctl.py, test_report_server.py
+  static/      dashboard frontend (index.html, app.js, styles.css, vendor/)
+```
+
 ## Run
 
 Run from the **host project root** (the parent of this dir), so `pixon` imports and `Test/...` paths resolve. CLI is **positional paths/globs only** (`--device <serial>` is an internal/child flag, not normally used).
 
 **Auto multi-device parallelism:** with no `--device`, the runner enumerates connected ADB devices (`parallel_utils.list_devices`). With **≥2 devices** it splits the flows into balanced contiguous chunks (`parallel_utils.partition`, one chunk per device, fixed assignment) and spawns **one child process per device** (`_run_parallel` re-invokes this script with `--device <serial>` + that device's slice). Output streams live, each line prefixed `[serial]`; a combined summary is printed and written to `report_run/_parallel_<ts>/summary.txt`; the process exits non-zero if any flow failed. With **exactly 1 device** (or an explicit `--device`) it falls through to a single in-process sequential run. `--shard-total`/`--shard-index` still work and take precedence over auto-parallel.
-
-**Self-update:** every invocation begins with a best-effort `git pull --ff-only` of `dagster/` from `origin/<current-branch>` (see `updater.py`). Opt out on dev boxes with `DAGSTER_NO_UPDATE=1` or by touching `dagster/.no-update`. Failures warn but never block the run.
 
 ```
 # single test
@@ -38,9 +53,6 @@ python dagster/dagster_run.py Test/HeartSystem/*.air
 
 # multiple suites in one run
 python dagster/dagster_run.py Test/DailyMission/*.air Test/HeartSystem/*.air
-
-# legacy minimal runner
-python dagster/pixon_run.py Test/<Suite>/<tcNN_name>.air
 ```
 
 Recording defaults ON (`RECORDING = True`, `dagster_run.py`); console verbosity is `LOG_LEVEL = logging.DEBUG`. Toggle by editing those module constants.
@@ -63,7 +75,7 @@ Multi-device runs additionally write `report_run/_parallel_<YYYYMMDD_HHMMSS>/sum
 ## Architecture (non-obvious — spans runner + pixon)
 
 - **`run_step()` monkey-patch** (`dagster_run.py`, `_hooked_run_step`, near top of module). Before any test module is imported, the runner wraps `pixon.common.test_flow.run_step`. Each call captures the step's name / action / status / screenshot / error into a global `_steps` list (and also emits an Airtest NDJSON entry via `_emit_step_log`, now used only for FAIL detection). The custom `report.html` is rendered from `_steps` — this is *why* named steps and screenshots appear; tests just call `run_step(...)`; instrumentation is here, not in the tests. `_steps` is cleared per test → **sequential runs only within a process**, not thread-safe. Multi-device parallelism is therefore **process-based** (one OS process per device, `_run_parallel`), never threaded: Airtest's `G.DEVICE` is a process-global singleton, so each device needs its own interpreter. The parent process holds no Airtest state — it only spawns children, streams their stdout, and aggregates `[RESULT]\t<flow>\t<status>\t<dir>` lines.
-- **Report pipeline** (`reporting.py`): `generate_summary_report` builds a self-contained custom `report.html` (status banner, step table, screenshots, recordings) from the captured `_steps`; `write_log_txt` writes `log.txt`; shared dark theme in `report_theme.py`. Airtest's `LogToHtml` report was removed. `airtest.log` is still produced and parsed by `runner.py` (~lines 108-140) for traceback-based FAIL detection — do **not** delete it.
+- **Report pipeline** (`reports/reporting.py`): `generate_summary_report` builds a self-contained custom `report.html` (status banner, step table, screenshots, recordings) from the captured `_steps`; `write_log_txt` writes `log.txt`; shared dark theme in `reports/report_theme.py`. Airtest's `LogToHtml` report was removed. `airtest.log` is still produced and parsed by `runner.py` for traceback-based FAIL detection — do **not** delete it.
 - **scrcpy lifecycle**: recorder `.start()` before the test, `.stop()` in a `finally`, MP4 path injected into the HTML report.
 
 ## Conventions

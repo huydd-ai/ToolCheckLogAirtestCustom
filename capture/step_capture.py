@@ -11,8 +11,8 @@ _current: str | None = None   # in-flight: set while run_step executes
 _last: str | None = None       # persistent: last step that ran, never cleared
 _orig_run_step = _tf.run_step
 
-from dagster.log_utils import latest_screenshot as _latest_screenshot
-from dagster.OpenCVAnnotator import OpenCVAnnotator as _Annotator
+from dagster.capture.log_utils import latest_screenshot as _latest_screenshot
+from dagster.recording.OpenCVAnnotator import OpenCVAnnotator as _Annotator
 import pixon.common.logging_utils as _lu
 _orig_log_info = _lu.log_info
 

@@ -73,7 +73,7 @@ def _parse_airtest_log(text: str) -> list[dict]:
     return rows
 
 try:
-    from dagster.report_theme import THEME_CSS
+    from dagster.reports.report_theme import THEME_CSS
 except ModuleNotFoundError:
     from report_theme import THEME_CSS
 
