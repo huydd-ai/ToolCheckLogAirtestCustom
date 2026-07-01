@@ -1,16 +1,16 @@
-# Graph Report - dagster  (2026-06-30)
+# Graph Report - dagster  (2026-07-01)
 
 ## Corpus Check
-- 29 files · ~1,613,688 words
+- 45 files · ~1,942,259 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 622 nodes · 857 edges · 39 communities (33 shown, 6 thin omitted)
-- Extraction: 86% EXTRACTED · 14% INFERRED · 0% AMBIGUOUS · INFERRED: 116 edges (avg confidence: 0.8)
+- 1694 nodes · 3606 edges · 104 communities (87 shown, 17 thin omitted)
+- Extraction: 95% EXTRACTED · 5% INFERRED · 0% AMBIGUOUS · INFERRED: 190 edges (avg confidence: 0.8)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `bcc1443e`
+- Built from commit: `abbb2ca8`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -51,75 +51,136 @@
 - [[_COMMUNITY_Community 33|Community 33]]
 - [[_COMMUNITY_Community 34|Community 34]]
 - [[_COMMUNITY_Community 35|Community 35]]
+- [[_COMMUNITY_Community 36|Community 36]]
 - [[_COMMUNITY_Community 37|Community 37]]
 - [[_COMMUNITY_Community 38|Community 38]]
+- [[_COMMUNITY_Community 39|Community 39]]
+- [[_COMMUNITY_Community 40|Community 40]]
+- [[_COMMUNITY_Community 41|Community 41]]
+- [[_COMMUNITY_Community 42|Community 42]]
+- [[_COMMUNITY_Community 43|Community 43]]
+- [[_COMMUNITY_Community 44|Community 44]]
+- [[_COMMUNITY_Community 45|Community 45]]
+- [[_COMMUNITY_Community 46|Community 46]]
+- [[_COMMUNITY_Community 47|Community 47]]
+- [[_COMMUNITY_Community 48|Community 48]]
+- [[_COMMUNITY_Community 49|Community 49]]
+- [[_COMMUNITY_Community 50|Community 50]]
+- [[_COMMUNITY_Community 51|Community 51]]
+- [[_COMMUNITY_Community 52|Community 52]]
+- [[_COMMUNITY_Community 53|Community 53]]
+- [[_COMMUNITY_Community 54|Community 54]]
+- [[_COMMUNITY_Community 55|Community 55]]
+- [[_COMMUNITY_Community 56|Community 56]]
+- [[_COMMUNITY_Community 57|Community 57]]
+- [[_COMMUNITY_Community 58|Community 58]]
+- [[_COMMUNITY_Community 59|Community 59]]
+- [[_COMMUNITY_Community 60|Community 60]]
+- [[_COMMUNITY_Community 61|Community 61]]
+- [[_COMMUNITY_Community 62|Community 62]]
+- [[_COMMUNITY_Community 63|Community 63]]
+- [[_COMMUNITY_Community 64|Community 64]]
+- [[_COMMUNITY_Community 65|Community 65]]
+- [[_COMMUNITY_Community 66|Community 66]]
+- [[_COMMUNITY_Community 67|Community 67]]
+- [[_COMMUNITY_Community 68|Community 68]]
+- [[_COMMUNITY_Community 69|Community 69]]
+- [[_COMMUNITY_Community 70|Community 70]]
+- [[_COMMUNITY_Community 71|Community 71]]
+- [[_COMMUNITY_Community 72|Community 72]]
+- [[_COMMUNITY_Community 73|Community 73]]
+- [[_COMMUNITY_Community 74|Community 74]]
+- [[_COMMUNITY_Community 75|Community 75]]
+- [[_COMMUNITY_Community 76|Community 76]]
+- [[_COMMUNITY_Community 77|Community 77]]
+- [[_COMMUNITY_Community 78|Community 78]]
+- [[_COMMUNITY_Community 79|Community 79]]
+- [[_COMMUNITY_Community 80|Community 80]]
+- [[_COMMUNITY_Community 81|Community 81]]
+- [[_COMMUNITY_Community 82|Community 82]]
+- [[_COMMUNITY_Community 83|Community 83]]
+- [[_COMMUNITY_Community 84|Community 84]]
+- [[_COMMUNITY_Community 85|Community 85]]
+- [[_COMMUNITY_Community 86|Community 86]]
+- [[_COMMUNITY_Community 87|Community 87]]
+- [[_COMMUNITY_Community 88|Community 88]]
+- [[_COMMUNITY_Community 89|Community 89]]
+- [[_COMMUNITY_Community 90|Community 90]]
+- [[_COMMUNITY_Community 91|Community 91]]
+- [[_COMMUNITY_Community 92|Community 92]]
+- [[_COMMUNITY_Community 93|Community 93]]
+- [[_COMMUNITY_Community 94|Community 94]]
+- [[_COMMUNITY_Community 95|Community 95]]
+- [[_COMMUNITY_Community 96|Community 96]]
+- [[_COMMUNITY_Community 97|Community 97]]
+- [[_COMMUNITY_Community 98|Community 98]]
 
 ## God Nodes (most connected - your core abstractions)
-1. `generate_summary_report()` - 24 edges
-2. `render_html()` - 17 edges
-3. `regenerate_global_report()` - 17 edges
-4. `group_by_date()` - 15 edges
-5. `write_log_txt()` - 15 edges
-6. `ReportHandler` - 15 edges
-7. `ScrcpyRecorder` - 14 edges
-8. `scan_runs()` - 13 edges
-9. `run_single_test()` - 13 edges
-10. `_normalize_and_filter_airtest_log()` - 12 edges
+1. `js()` - 71 edges
+2. `an()` - 61 edges
+3. `ns()` - 55 edges
+4. `n()` - 38 edges
+5. `no` - 32 edges
+6. `s()` - 29 edges
+7. `va` - 28 edges
+8. `o()` - 27 edges
+9. `updateElements()` - 25 edges
+10. `a()` - 24 edges
 
 ## Surprising Connections (you probably didn't know these)
-- `Aggregate Report Generator` --semantically_similar_to--> `Report Generator`  [INFERRED] [semantically similar]
-  aggregate_report.py → reporting.py
-- `Backend Review Fixes Plan` --references--> `Report Generator`  [EXTRACTED]
-  docs/superpowers/plans/2026-06-12-backend-review-fixes.md → reporting.py
-- `Backend Review Fixes Plan` --references--> `Test Execution Orchestrator`  [EXTRACTED]
-  docs/superpowers/plans/2026-06-12-backend-review-fixes.md → runner.py
-- `Claude Code Guidance` --semantically_similar_to--> `User Documentation`  [INFERRED] [semantically similar]
-  CLAUDE.md → README.md
-- `test_parse_simple_stem()` --calls--> `parse_run_folder_name()`  [INFERRED]
-  test_aggregate_report.py → aggregate_report.py
+- `main()` --calls--> `patch_run_step()`  [INFERRED]
+  dagster_run.py → capture/step_capture.py
+- `run_single_test()` --calls--> `clear_errors()`  [INFERRED]
+  runner.py → capture/error_capture.py
+- `run_single_test()` --calls--> `clear_steps()`  [INFERRED]
+  runner.py → capture/step_capture.py
+- `run_single_test()` --calls--> `get_steps()`  [INFERRED]
+  runner.py → capture/step_capture.py
+- `run_single_test()` --calls--> `get_errors()`  [INFERRED]
+  runner.py → capture/error_capture.py
 
 ## Hyperedges (group relationships)
 - **Test Report Pipeline** — step_capture, reporting, aggregate_report, report_server [EXTRACTED 1.00]
 - **Test Execution Lifecycle** — updater, dagster_run, runner, step_capture, reporting, log_utils, ScrcpyRecorder [EXTRACTED 1.00]
 - **Multi-Device Parallel Execution** — parallel_utils, dagster_run, ProcessBasedParallelism [EXTRACTED 1.00]
 
-## Communities (39 total, 6 thin omitted)
+## Communities (104 total, 17 thin omitted)
 
 ### Community 0 - "Community 0"
 Cohesion: 0.06
-Nodes (69): _append_catalog(), _append_date_group(), build_catalog(), _count_statuses(), _device_summary(), extract_device(), extract_status(), extract_suite() (+61 more)
+Nodes (68): _append_catalog(), _append_date_group(), build_catalog(), _count_statuses(), _device_summary(), extract_device(), extract_status(), extract_suite() (+60 more)
 
 ### Community 1 - "Community 1"
 Cohesion: 0.08
 Nodes (60): _fmt_secs(), generate_html(), generate_summary_report(), _normalize_and_filter_airtest_log(), _parse_airtest_log(), Format seconds as compact human duration: '4.21s', '1m 04s', '1h 02m 03s'., Generate Airtest HTML report from NDJSON log., Parse Airtest's NDJSON log into command rows: one row per logged action.      Ea (+52 more)
 
 ### Community 2 - "Community 2"
-Cohesion: 0.11
-Nodes (29): Step Duration Field, Next-Invocation Update Semantic, Parent-Only Git Pull, Process-Based Multi-Device Parallelism, Report Pipeline Architecture, run_step() Monkey-Patch Architecture, Scrcpy Lifecycle Pattern, Scrcpy Screen Recorder (+21 more)
+Cohesion: 0.05
+Nodes (51): Step Duration Field, Next-Invocation Update Semantic, Parent-Only Git Pull, Process-Based Multi-Device Parallelism, Report Pipeline Architecture, run_step() Monkey-Patch Architecture, Scrcpy Lifecycle Pattern, Scrcpy Screen Recorder (+43 more)
 
 ### Community 3 - "Community 3"
-Cohesion: 0.05
-Nodes (42): main(), attach_error_handler(), clear_errors(), ErrorCaptureHandler, get_errors(), Captures ERROR and CRITICAL logs to _errors list., Idempotently attach ErrorCaptureHandler to the target logger., latest_screenshot() (+34 more)
+Cohesion: 0.14
+Nodes (15): clear_steps(), _emit_step_log(), get_current(), get_steps(), _hooked_run_step(), _latest_screenshot(), Find the most recently modified .jpg/.png in ST.LOG_DIR., Return in-flight step name, or last-ran step name if between steps. (+7 more)
 
 ### Community 4 - "Community 4"
 Cohesion: 0.04
 Nodes (44): code:python ("""Unit tests for dagster.updater. All git interaction is mo), code:block10 (python -m pytest test_updater.py -v), code:block11 (git add dagster/updater.py dagster/test_updater.py), code:python (def test_check_and_update_warns_on_fetch_timeout(monkeypatch), code:block13 (python -m pytest test_updater.py::test_check_and_update_warn), code:python (def _fetch(repo_root: Path, branch: str) -> bool:), code:python (def check_and_update(repo_root: Path, is_parallel_child: boo), code:block16 (python -m pytest test_updater.py -v) (+36 more)
 
 ### Community 5 - "Community 5"
-Cohesion: 0.17
-Nodes (16): list_devices(), parse_adb_devices(), partition(), Pure helpers for the parallel multi-device runner. No Airtest imports., Split items into n balanced contiguous chunks (sizes differ by <= 1).      Rem, Parse `adb devices` stdout; return serials whose state is exactly 'device'., Enumerate connected ADB devices in the 'device' state.      Prefers the adb bu, test_list_devices_returns_empty_on_failure() (+8 more)
+Cohesion: 0.07
+Nodes (15): buildLookupTable(), En, Fo(), _generate(), getDecimalForValue(), _getTimestampsForTable(), init(), initOffsets() (+7 more)
 
 ### Community 6 - "Community 6"
-Cohesion: 0.16
-Nodes (6): _ok(), Unit tests for dagster.updater. All git interaction is mocked., Build a successful CompletedProcess result for mock fakes., test_check_and_update_skips_when_env_opt_out(), test_check_and_update_skips_when_marker_file_present(), test_check_and_update_skips_when_parallel_child()
+Cohesion: 0.06
+Nodes (30): beforeDatasetDraw(), beforeDatasetsDraw(), beforeDraw(), beforeLayout(), c(), destroy(), di(), draw() (+22 more)
 
 ### Community 7 - "Community 7"
 Cohesion: 0.07
 Nodes (27): Backend Review Fixes Implementation Plan, Bug 1 — Dev mode runs invisible to aggregate report, code:python (if mode == "tester":), code:block10 (python -m pytest test_reporting.py::test_generate_html_propa), code:block11 (python -m pytest test_reporting.py test_aggregate_report.py ), code:bash (git add dagster/reporting.py dagster/test_reporting.py), code:python (finally:), code:block14 (python -m pytest -v -k "status" 2>&1 | head -20) (+19 more)
 
 ### Community 8 - "Community 8"
-Cohesion: 0.13
-Nodes (15): _compute_etag(), extract_air_path(), _find_newest_folder(), _find_running_job(), _prune_jobs(), Simple HTTP server for the aggregate test report.  Serves static files from RE, Resolve folder_name under REPORT_ROOT, rejecting path traversal.     Returns th, Read AIR_PATH= from first line of log.txt. Returns None if absent or unreadable. (+7 more)
+Cohesion: 0.15
+Nodes (10): _any_job_running(), _compute_etag(), _find_newest_folder(), Return the lexicographically latest folder name matching <stem>_YYYYMMDD_HHMMSS., Stable 16-char hex ETag from sorted folder names and mtimes., True if any job is still running, reaping procs that already exited so a     de, ReportHandler, Map suite folder -> sorted .air stems under test_root/<suite>/. (+2 more)
 
 ### Community 9 - "Community 9"
 Cohesion: 0.17
@@ -167,7 +228,7 @@ Nodes (10): code:powershell (# Run a single .air test in tester mode (default)),
 
 ### Community 22 - "Community 22"
 Cohesion: 0.2
-Nodes (8): Architecture (non-obvious — spans runner + pixon), code:block1 (# single test), code:block2 (report_run/<air_stem>_<YYYYMMDD_HHMMSS>/), Conventions, Host dependency (critical — this repo is not self-running), Output, Run, What this is
+Nodes (10): Architecture (non-obvious — spans runner + pixon), code:block1 (dagster/), code:block2 (# single test), code:block3 (report_run/<air_stem>_<YYYYMMDD_HHMMSS>/), Conventions, Host dependency (critical — this repo is not self-running), Layout, Output (+2 more)
 
 ### Community 25 - "Community 25"
 Cohesion: 0.22
@@ -213,25 +274,225 @@ Nodes (4): code:python (def test_regenerate_renders_suite_groups_and_catalog(tmp
 Cohesion: 0.5
 Nodes (3): code:python (def _entry_s(stem, dt_str, status, suite):), code:bash (git add aggregate_report.py test_aggregate_report.py), Task 2: `group_by_suite_then_date`
 
+### Community 36 - "Community 36"
+Cohesion: 0.12
+Nodes (14): get_paths(), extract_air_path(), _find_running_job(), main(), _prune_jobs(), Simple HTTP server for the aggregate test report.  Serves static files from RE, Evict oldest finished jobs above _JOBS_MAX, closing their log handle and     un, Resolve folder_name under REPORT_ROOT, rejecting path traversal.     Returns th (+6 more)
+
+### Community 39 - "Community 39"
+Cohesion: 0.08
+Nodes (5): d(), ie, js(), Ue(), w()
+
+### Community 40 - "Community 40"
+Cohesion: 0.07
+Nodes (25): Be(), Bt(), cr(), d(), Dn(), et(), F(), fe() (+17 more)
+
+### Community 41 - "Community 41"
+Cohesion: 0.08
+Nodes (14): at(), bt, gt(), jt(), kt(), mt(), qt(), _t() (+6 more)
+
+### Community 42 - "Community 42"
+Cohesion: 0.1
+Nodes (3): bs, ns(), updateRangeFromParsed()
+
+### Community 43 - "Community 43"
+Cohesion: 0.13
+Nodes (16): afterEvent(), ca(), da(), fa(), ga(), getBasePixel(), ha, ki() (+8 more)
+
+### Community 44 - "Community 44"
+Cohesion: 0.1
+Nodes (10): a(), determineDataLimits(), getValueForPixel(), j(), ko, pt(), q(), r() (+2 more)
+
+### Community 45 - "Community 45"
+Cohesion: 0.16
+Nodes (29): _(), An(), bi(), Cn(), deleteProperty(), dt(), ge(), get() (+21 more)
+
+### Community 47 - "Community 47"
+Cohesion: 0.15
+Nodes (5): bn, on(), pn(), qs(), xn()
+
+### Community 48 - "Community 48"
+Cohesion: 0.16
+Nodes (6): afterUpdate(), ft(), ne(), ut(), xa, zs()
+
+### Community 49 - "Community 49"
+Cohesion: 0.13
+Nodes (18): ao(), co(), Do(), et(), ho(), Hs, inRange(), inXRange() (+10 more)
+
+### Community 50 - "Community 50"
+Cohesion: 0.13
+Nodes (3): eo(), to(), wi()
+
+### Community 52 - "Community 52"
+Cohesion: 0.17
+Nodes (13): _(), aa(), As(), b(), g(), gn, l(), m() (+5 more)
+
+### Community 53 - "Community 53"
+Cohesion: 0.16
+Nodes (19): $e(), ei(), fi(), I(), Ie(), ir(), jn(), mr() (+11 more)
+
+### Community 54 - "Community 54"
+Cohesion: 0.15
+Nodes (4): gs(), ks(), Us(), Xs()
+
+### Community 55 - "Community 55"
+Cohesion: 0.11
+Nodes (17): Architecture, code:block1 (report_run/ folders ──scan(1 head read)──> report_data.scan_), Component 1 — `report_data.py` (new, shared data layer), Component 2 — JSON API (extend `report_server.py`), Component 3 — SPA (new `static/` dir, served by `report_server.py`), Component 4 — Triage features, Component 5 — Backward compatibility, Current state (baseline) (+9 more)
+
+### Community 56 - "Community 56"
+Cohesion: 0.12
+Nodes (8): addElements(), es(), is(), lt(), qi, rt(), ss(), vs()
+
+### Community 57 - "Community 57"
+Cohesion: 0.15
+Nodes (11): be(), ct(), ds(), fs(), ge(), me(), ms(), pe() (+3 more)
+
+### Community 58 - "Community 58"
+Cohesion: 0.17
+Nodes (8): buildTicks(), fn, go(), parse(), parseArrayData(), parseObjectData(), parsePrimitiveData(), zn()
+
+### Community 60 - "Community 60"
+Cohesion: 0.12
+Nodes (15): Architecture, code:python (LDCONSOLE = r"C:\LDPlayer\LDPlayer9\ldconsole.exe"), code:block2 (Single Run / Rerun:), Component 1 — `ldplayer_ctl.py` (new, `dagster/`, beside `device_manager.py`), Component 2 — two new POST routes in `report_server.py`, Component 3 — `app.js` client sequencing, Data flow, Decisions (locked) (+7 more)
+
+### Community 61 - "Community 61"
+Cohesion: 0.18
+Nodes (5): _install_quiet_excepthook(), Keep a live scrcpy stream for the whole recording, reconnecting on drop., Swallow scrcpy's expected 'Video stream is disconnected' thread crash.      scrc, Record device screen via the scrcpy stream into a single continuous MP4.      Fr, ScrcpyRecorder
+
+### Community 62 - "Community 62"
+Cohesion: 0.23
+Nodes (12): deleteDate(), deleteRun(), fetchCatalog(), fetchData(), fetchMetrics(), init(), pollJob(), rerunTest() (+4 more)
+
+### Community 63 - "Community 63"
+Cohesion: 0.22
+Nodes (3): cs, os(), pi()
+
+### Community 64 - "Community 64"
+Cohesion: 0.17
+Nodes (15): dataset(), ei(), getRange(), h(), hi(), ii(), index(), ji() (+7 more)
+
+### Community 65 - "Community 65"
+Cohesion: 0.14
+Nodes (10): attach_error_handler(), clear_errors(), ErrorCaptureHandler, get_errors(), Captures ERROR and CRITICAL logs to _errors list., Idempotently attach ErrorCaptureHandler to the target logger., latest_screenshot(), Find the most recently modified .jpg/.png in ST.LOG_DIR. (+2 more)
+
+### Community 66 - "Community 66"
+Cohesion: 0.14
+Nodes (10): attach_error_handler(), clear_errors(), ErrorCaptureHandler, get_errors(), Captures ERROR and CRITICAL logs to _errors list., Idempotently attach ErrorCaptureHandler to the target logger., latest_screenshot(), Find the most recently modified .jpg/.png in ST.LOG_DIR. (+2 more)
+
+### Community 67 - "Community 67"
+Cohesion: 0.21
+Nodes (11): compute_metrics(), extract_error_from_airtest_log(), parse_run_folder_name(), Data layer for the global test report., Compute aggregate metrics: totals, trend, and flaky tests., Read tail of airtest.log to find the last traceback line., RunEntry, scan_runs() (+3 more)
+
+### Community 68 - "Community 68"
+Cohesion: 0.23
+Nodes (14): _append_catalog(), _append_date_group(), build_catalog(), _count_statuses(), _device_summary(), group_by_date(), group_by_suite_then_date(), _js_arg() (+6 more)
+
+### Community 69 - "Community 69"
+Cohesion: 0.16
+Nodes (15): a(), ae(), Bn(), C(), Fn(), G(), Gn(), Je() (+7 more)
+
+### Community 70 - "Community 70"
+Cohesion: 0.14
+Nodes (15): ci(), di(), Dr(), Ee(), en(), fr(), Ii(), pr() (+7 more)
+
+### Community 71 - "Community 71"
+Cohesion: 0.19
+Nodes (3): afterDatasetsUpdate(), mn(), onClick()
+
+### Community 72 - "Community 72"
+Cohesion: 0.29
+Nodes (8): afterDraw(), ai(), ba(), ea(), oi(), Si(), ti(), x()
+
+### Community 73 - "Community 73"
+Cohesion: 0.14
+Nodes (7): addBox(), beforeUpdate(), bo, configure(), initialize(), reset(), start()
+
+### Community 74 - "Community 74"
+Cohesion: 0.21
+Nodes (5): cn(), dn(), fe(), i, sn
+
+### Community 75 - "Community 75"
+Cohesion: 0.18
+Nodes (11): clear_steps(), _emit_step_log(), get_current(), get_steps(), _hooked_run_step(), patch_run_step(), Return in-flight step name, or last-ran step name if between steps., Emit an Airtest NDJSON 'function' entry so LogToHtml can show the step in report (+3 more)
+
+### Community 76 - "Community 76"
+Cohesion: 0.22
+Nodes (12): check_and_update(), _commits_behind(), _current_branch(), _fetch(), _is_opted_out(), _pull_ff(), Self-update for the dagster runner.  Pulls the latest dagster/ code from origin, Pull the latest dagster/ code from origin. Best-effort, never raises. (+4 more)
+
+### Community 77 - "Community 77"
+Cohesion: 0.17
+Nodes (11): launch(), quit(), Launch/close the LDPlayer emulator for dashboard-triggered test runs.  Single in, Start the LDPlayer instance. Raises FileNotFoundError if ldconsole is missing., Close the LDPlayer instance. Best-effort: logs failures, never raises., Poll for a booted, ADB-healthy device; on first sighting, sleep STABILIZE then r, wait_ready(), No device ever appears -> returns False once virtual clock passes timeout. (+3 more)
+
+### Community 78 - "Community 78"
+Cohesion: 0.21
+Nodes (10): Run a single Airtest module, capture steps, video, and generate report. Returns, Run a single Airtest module, capture steps, video, and generate report. Returns, run_single_test(), _fmt_secs(), generate_summary_report(), _parse_airtest_log(), Format seconds as compact human duration: '4.21s', '1m 04s', '1h 02m 03s'., Parse Airtest's NDJSON log into command rows: one row per logged action.      Ea (+2 more)
+
+### Community 79 - "Community 79"
+Cohesion: 0.17
+Nodes (12): Ce(), Jt(), kn(), Mn(), ownKeys(), q(), rr(), _t() (+4 more)
+
+### Community 80 - "Community 80"
+Cohesion: 0.27
+Nodes (8): _calculateBarValuePixels(), getLabelAndValue(), getLabelForValue(), hn(), ts(), update(), updateElements(), vn()
+
+### Community 81 - "Community 81"
+Cohesion: 0.24
+Nodes (5): ce(), de, dt(), he(), oe
+
+### Community 82 - "Community 82"
+Cohesion: 0.24
+Nodes (9): delete_report_folder(), delete_reports_by_pattern(), delete_reports_older_than(), Report cleanup utilities for dagster. Handles deletion of report folders and the, Delete entire report folder and all contents.      Args:         report_path: Pa, Delete report folders matching a pattern.      Args:         report_root: Base r, Delete report folders older than specified days.      Args:         report_root:, main() (+1 more)
+
+### Community 83 - "Community 83"
+Cohesion: 0.24
+Nodes (6): DeviceCaps, DeviceManager, Manages the pool of Android devices for test sharding., Runs adb devices and returns a list of connected serials., Checks if a device is booted, and probes its capabilities., Discovers and returns a list of healthy devices.
+
+### Community 84 - "Community 84"
+Cohesion: 0.27
+Nodes (8): _calculateBarIndexPixels(), getPixelForTick(), getPixelForValue(), _getRuler(), _getStackCount(), _getStackIndex(), _getStacks(), In()
+
+### Community 86 - "Community 86"
+Cohesion: 0.29
+Nodes (4): Ae(), Bi(), ci(), fi
+
+### Community 87 - "Community 87"
+Cohesion: 0.22
+Nodes (7): ia(), je(), ke(), qe(), s(), ye(), ze()
+
+### Community 92 - "Community 92"
+Cohesion: 0.38
+Nodes (4): _FakeProc, A job marked running whose process already exited must be reaped, not counted —, test_any_job_running_reaps_exited_job_and_returns_false(), test_any_job_running_true_when_running_job_present()
+
+### Community 93 - "Community 93"
+Cohesion: 0.33
+Nodes (7): br(), ct(), le(), Ln(), Me(), Vn(), Vt()
+
+### Community 96 - "Community 96"
+Cohesion: 0.33
+Nodes (4): gi(), mi(), un(), vi()
+
+### Community 97 - "Community 97"
+Cohesion: 0.5
+Nodes (4): Er(), he(), Hn(), zn()
+
 ## Knowledge Gaps
-- **272 isolated node(s):** `Aggregate per-run report folders into a single global report.html.`, `Escape a value for use as a single-quoted JS string literal inside a     double`, `Read DEVICE= from log.txt head. Returns 'unknown' if absent (e.g. old runs).`, `Suite = parent dir name of AIR_PATH in log.txt head. 'unknown' if absent.`, `Map suite folder -> sorted .air stems under test_root/<suite>/. All test cases,` (+267 more)
+- **345 isolated node(s):** `Report cleanup utilities for dagster. Handles deletion of report folders and the`, `Delete entire report folder and all contents.      Args:         report_path: Pa`, `Delete report folders matching a pattern.      Args:         report_root: Base r`, `Delete report folders older than specified days.      Args:         report_root:`, `Simple HTTP server for the aggregate test report.  Serves static files from RE` (+340 more)
   These have ≤1 connection - possible missing edges or undocumented components.
-- **6 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+- **17 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `regenerate_global_report()` connect `Community 0` to `Community 8`, `Community 3`?**
-  _High betweenness centrality (0.092) - this node is a cross-community bridge._
-- **Why does `main()` connect `Community 3` to `Community 0`?**
-  _High betweenness centrality (0.089) - this node is a cross-community bridge._
-- **Why does `run_single_test()` connect `Community 3` to `Community 9`, `Community 1`, `Community 23`?**
-  _High betweenness centrality (0.087) - this node is a cross-community bridge._
-- **Are the 21 inferred relationships involving `generate_summary_report()` (e.g. with `run_single_test()` and `test_generate_summary_report_writes_file()`) actually correct?**
-  _`generate_summary_report()` has 21 INFERRED edges - model-reasoned connections that need verification._
-- **Are the 11 inferred relationships involving `render_html()` (e.g. with `test_render_html_contains_doctype_and_title()` and `test_render_html_empty_state()`) actually correct?**
-  _`render_html()` has 11 INFERRED edges - model-reasoned connections that need verification._
-- **Are the 9 inferred relationships involving `regenerate_global_report()` (e.g. with `main()` and `.do_POST()`) actually correct?**
-  _`regenerate_global_report()` has 9 INFERRED edges - model-reasoned connections that need verification._
-- **Are the 11 inferred relationships involving `group_by_date()` (e.g. with `test_group_by_date_dates_sorted_descending()` and `test_group_by_date_within_group_sorted_newest_first()`) actually correct?**
-  _`group_by_date()` has 11 INFERRED edges - model-reasoned connections that need verification._
+- **Why does `main()` connect `Community 82` to `Community 0`, `Community 65`, `Community 66`, `Community 36`, `Community 68`, `Community 75`, `Community 76`, `Community 78`?**
+  _High betweenness centrality (0.171) - this node is a cross-community bridge._
+- **Why does `n()` connect `Community 88` to `Community 5`, `Community 6`, `Community 36`, `Community 43`, `Community 44`, `Community 46`, `Community 47`, `Community 48`, `Community 49`, `Community 52`, `Community 54`, `Community 56`, `Community 57`, `Community 58`, `Community 63`, `Community 80`, `Community 81`, `Community 89`, `Community 94`?**
+  _High betweenness centrality (0.129) - this node is a cross-community bridge._
+- **Why does `regenerate_global_report()` connect `Community 0` to `Community 8`, `Community 82`, `Community 36`?**
+  _High betweenness centrality (0.077) - this node is a cross-community bridge._
+- **What connects `Report cleanup utilities for dagster. Handles deletion of report folders and the`, `Delete entire report folder and all contents.      Args:         report_path: Pa`, `Delete report folders matching a pattern.      Args:         report_root: Base r` to the rest of the system?**
+  _345 weakly-connected nodes found - possible documentation gaps or missing edges._
+- **Should `Community 0` be split into smaller, more focused modules?**
+  _Cohesion score 0.06 - nodes in this community are weakly interconnected._
+- **Should `Community 1` be split into smaller, more focused modules?**
+  _Cohesion score 0.08 - nodes in this community are weakly interconnected._
+- **Should `Community 2` be split into smaller, more focused modules?**
+  _Cohesion score 0.05 - nodes in this community are weakly interconnected._
