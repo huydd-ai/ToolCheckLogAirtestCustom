@@ -81,6 +81,25 @@ def _find_running_job(suite: str, stem: str) -> dict | None:
     return None
 
 
+def _any_job_running() -> bool:
+    """True if any job is still running, reaping procs that already exited so a
+    dead-but-unreaped job (client poller died) doesn't wrongly report running.
+    Acquires _jobs_lock itself — caller must NOT hold it."""
+    with _jobs_lock:
+        for job in _jobs.values():
+            if job.get("status") != "running":
+                continue
+            rc = job["proc"].poll()
+            if rc is None:
+                return True
+            job["exit_code"] = rc
+            job["status"] = "done" if rc == 0 else "failed"
+            lf = job.get("log_file")
+            if lf is not None and not lf.closed:
+                lf.close()
+    return False
+
+
 _JOBS_MAX = 100
 
 
@@ -123,11 +142,9 @@ class ReportHandler(SimpleHTTPRequestHandler):
         super().__init__(*args, directory=str(REPORT_ROOT.resolve()), **kwargs)
 
     def end_headers(self):
-        path = self.translate_path(self.path)
-        if path.endswith('.html') or path.endswith('.htm'):
-            self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
-            self.send_header("Pragma", "no-cache")
-            self.send_header("Expires", "0")
+        self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
+        self.send_header("Pragma", "no-cache")
+        self.send_header("Expires", "0")
         super().end_headers()
 
     def translate_path(self, path):
@@ -208,8 +225,43 @@ class ReportHandler(SimpleHTTPRequestHandler):
         if self.path == "/run":
             self._handle_run()
             return
+        if self.path == "/emulator/start":
+            self._handle_emulator_start()
+            return
+        if self.path == "/emulator/stop":
+            self._handle_emulator_stop()
+            return
         self.send_response(405)
         self.end_headers()
+
+    def _handle_emulator_start(self) -> None:
+        from dagster import ldplayer_ctl
+        from dagster.device_manager import device_manager
+        # Idempotent: already-booted device -> ready now, no launch, no stabilize wait.
+        try:
+            if device_manager.get_healthy_devices():
+                self._json(200, {"status": "ready"})
+                return
+        except Exception:
+            pass  # health probe hiccup -> fall through to launch
+        try:
+            ldplayer_ctl.launch()
+        except FileNotFoundError:
+            self._json(500, {"error": "ldconsole not found"})
+            return
+        if ldplayer_ctl.wait_ready(60):
+            self._json(200, {"status": "ready"})
+        else:
+            self._json(504, {"error": "emulator did not become ready"})
+
+    def _handle_emulator_stop(self) -> None:
+        from dagster import ldplayer_ctl
+        # Guard: another run still needs the emulator -> keep it (single instance).
+        if _any_job_running():
+            self._json(200, {"status": "kept", "reason": "job running"})
+            return
+        ldplayer_ctl.quit()
+        self._json(200, {"status": "stopped"})
 
     def _handle_run(self) -> None:
         try:

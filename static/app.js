@@ -89,11 +89,18 @@ document.addEventListener('alpine:init', () => {
             if (!this.metrics || !this.metrics.trend) return;
             const ctx = document.getElementById('trendChart');
             if (!ctx) return;
-            if (this.chartInstance) this.chartInstance.destroy();
             
             const labels = this.metrics.trend.map(t => t.date);
             const passRates = this.metrics.trend.map(t => t.pass_rate);
             const totals = this.metrics.trend.map(t => t.total);
+            
+            if (this.chartInstance) {
+                this.chartInstance.data.labels = labels;
+                this.chartInstance.data.datasets[0].data = passRates;
+                this.chartInstance.data.datasets[1].data = totals;
+                this.chartInstance.update('none'); // Update without animation to prevent flicker
+                return;
+            }
             
             this.chartInstance = new Chart(ctx, {
                 type: 'line',
@@ -107,7 +114,9 @@ document.addEventListener('alpine:init', () => {
                             backgroundColor: 'rgba(16, 185, 129, 0.1)',
                             yAxisID: 'y',
                             fill: true,
-                            tension: 0.3
+                            tension: 0.3,
+                            pointRadius: 5,
+                            pointHoverRadius: 7
                         },
                         {
                             label: 'Total Runs',
@@ -133,14 +142,34 @@ document.addEventListener('alpine:init', () => {
             });
         },
 
+        async startEmulator() {
+            try {
+                const res = await fetch('/emulator/start', { method: 'POST' });
+                return res.ok;
+            } catch (e) {
+                return false;
+            }
+        },
+
+        async stopEmulator() {
+            try {
+                await fetch('/emulator/stop', { method: 'POST' });
+            } catch (e) { /* best-effort close */ }
+        },
+
         async rerunTest(folder) {
+            this.jobs[folder] = { status: 'starting emulator...' };
+            if (!await this.startEmulator()) {
+                this.jobs[folder] = { status: 'emulator failed to start' };
+                return;
+            }
             this.jobs[folder] = { status: 'starting...' };
             try {
                 const res = await fetch('/rerun/' + encodeURIComponent(folder), { method: 'POST' });
                 const data = await res.json();
                 if (res.ok) {
                     this.jobs[folder] = { status: 'running', job_id: data.job_id };
-                    this.pollJob(data.job_id, folder);
+                    this.pollJob(data.job_id, folder); // standalone -> stops emulator on finish
                 } else {
                     this.jobs[folder] = { status: 'failed to start' };
                 }
@@ -148,20 +177,27 @@ document.addEventListener('alpine:init', () => {
                 this.jobs[folder] = { status: 'error' };
             }
         },
-        
-        async runCatalogTest(suite, stem) {
+
+        async runCatalogTest(suite, stem, standalone = true) {
             const key = stem;
+            if (standalone) {
+                this.jobs[key] = { status: 'starting emulator...' };
+                if (!await this.startEmulator()) {
+                    this.jobs[key] = { status: 'emulator failed to start' };
+                    return false;
+                }
+            }
             this.jobs[key] = { status: 'starting...' };
             try {
-                const res = await fetch('/run', { 
-                    method: 'POST', 
+                const res = await fetch('/run', {
+                    method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({air_path: `Test/${suite}/${stem}.air`})
                 });
                 const data = await res.json();
                 if (res.ok) {
                     this.jobs[key] = { status: 'running', job_id: data.job_id };
-                    return this.pollJob(data.job_id, key); // Return promise to allow waiting
+                    return this.pollJob(data.job_id, key, standalone); // stop only if standalone
                 } else {
                     this.jobs[key] = { status: 'failed to start' };
                     return false;
@@ -176,18 +212,26 @@ document.addEventListener('alpine:init', () => {
             const tests = this.catalog[suite];
             if (!tests) return;
             if (!confirm(`Run all ${tests.length} tests in ${suite} sequentially?\n\nKeep this tab open until all tests finish.`)) return;
-            
-            for (const t of tests) {
-                if (this.jobs[t]?.status === 'running') continue;
-                
-                await this.runCatalogTest(suite, t);
-                
-                // wait 3 seconds between tests to let device settle
-                await new Promise(r => setTimeout(r, 3000));
+
+            if (!await this.startEmulator()) {
+                alert('Emulator failed to start — batch aborted.');
+                return;
+            }
+            try {
+                for (const t of tests) {
+                    if (this.jobs[t]?.status === 'running') continue;
+
+                    await this.runCatalogTest(suite, t, false); // batch: no per-test open/close
+
+                    // wait 3 seconds between tests to let device settle
+                    await new Promise(r => setTimeout(r, 3000));
+                }
+            } finally {
+                await this.stopEmulator(); // close once after the whole batch
             }
         },
 
-        pollJob(jobId, key) {
+        pollJob(jobId, key, standalone = true) {
             return new Promise(resolve => {
                 const interval = setInterval(async () => {
                     try {
@@ -196,6 +240,7 @@ document.addEventListener('alpine:init', () => {
                         if (data.status !== 'running') {
                             clearInterval(interval);
                             this.jobs[key] = { status: data.status === 'done' ? 'completed' : 'failed' };
+                            if (standalone) await this.stopEmulator(); // close on any terminal state
                             this.etag = ''; // force reload on next fetch
                             this.fetchData();
                             resolve(data.status);
