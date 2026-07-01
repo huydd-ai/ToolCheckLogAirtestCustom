@@ -34,7 +34,7 @@ def wait_ready(timeout: int = 60, _poll=None, _sleep=time.sleep, _clock=time.mon
     """Poll for a booted, ADB-healthy device; on first sighting, sleep STABILIZE then return True.
     Returns False if none appears within `timeout`. The `_`-prefixed args are test seams."""
     if _poll is None:
-        from dagster.device_manager import device_manager
+        from dagster.device.device_manager import device_manager
         _poll = device_manager.get_healthy_devices
     start = _clock()
     while _clock() - start < timeout:

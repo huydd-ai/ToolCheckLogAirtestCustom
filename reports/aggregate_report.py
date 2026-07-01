@@ -20,8 +20,8 @@ def _js_arg(s: str) -> str:
     return escape(s, quote=True)
 
 try:
-    from dagster.report_theme import THEME_CSS
-    from dagster.report_data import RunEntry, scan_runs, scan_catalog, parse_run_folder_name
+    from dagster.reports.report_theme import THEME_CSS
+    from dagster.reports.report_data import RunEntry, scan_runs, scan_catalog, parse_run_folder_name
 except ModuleNotFoundError:
     from report_theme import THEME_CSS
     from report_data import RunEntry, scan_runs, scan_catalog, parse_run_folder_name
@@ -818,7 +818,7 @@ def render_html(
 def regenerate_global_report(report_root: Path, test_root: Path | None = None) -> Path:
     report_root.mkdir(parents=True, exist_ok=True)
     if test_root is None:
-        test_root = Path(__file__).resolve().parent.parent / "Test"
+        test_root = Path(__file__).resolve().parent.parent.parent / "Test"
     entries = scan_runs(report_root)
     suite_groups = group_by_suite_then_date(entries)
     catalog = build_catalog(test_root, entries)
@@ -837,4 +837,4 @@ def regenerate_global_report(report_root: Path, test_root: Path | None = None) -
 
 
 if __name__ == '__main__':
-    regenerate_global_report(Path(__file__).parent / 'report_run')
+    regenerate_global_report(Path(__file__).parent.parent / 'report_run')

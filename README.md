@@ -7,15 +7,23 @@ Portable, modular runner for Airtest `.air` projects with structured step loggin
 | File / Dir | Purpose |
 |------------|---------|
 | `dagster_run.py` | CLI Entrypoint. Handles test discovery, modes, and iterates through tests. |
-| `step_capture.py` | Monkey-patches `run_step` to capture per-step status, screenshots, and errors. |
-| `reporting.py` | Generates the per-run custom `report.html` and `log.txt`. |
-| `report_theme.py` | Shared dark-theme CSS (`THEME_CSS`) inlined into both the dashboard and per-run report. |
+| `report_server.py` | Local HTTP server (`python dagster/report_server.py --port 7070`) serving the dashboard and handling delete/rerun/run APIs. |
 | `runner.py` | The main test orchestration loop (`run_single_test`) with setup/teardown logic. |
-| `log_utils.py` | Configures console output logging for Airtest/Poco. |
-| `ScrcpyRecorder.py` | Subprocess wrapper around `scrcpy.exe` for Android screen recording (`.mp4`). |
+| `config.py` | Path constants (`get_paths()`: project root, `pixon/`, `Test/`). |
+| `cleanup.py` | Deletes `report_run/` folders by glob pattern or age. |
+| `capture/step_capture.py` | Monkey-patches `run_step` to capture per-step status, screenshots, and errors. |
+| `capture/error_capture.py` | Captures ERROR/CRITICAL log records for the per-run error panel. |
+| `capture/log_utils.py` | Configures console output logging for Airtest/Poco. |
+| `reports/reporting.py` | Generates the per-run custom `report.html` and `log.txt`. |
+| `reports/report_theme.py` | Shared dark-theme CSS (`THEME_CSS`) inlined into both the dashboard and per-run report. |
+| `reports/report_data.py` | Parses run folders, computes metrics (trend, flaky detection), builds the test catalog. |
+| `reports/aggregate_report.py` | Generates the global `report.html` dashboard, aggregating all test runs by date. |
+| `recording/ScrcpyRecorder.py` | Subprocess wrapper around `scrcpy.exe` for Android screen recording (`.mp4`). |
+| `recording/OpenCVRecorder.py`, `recording/OpenCVAnnotator.py` | Alternate OpenCV-based capture/annotation path. |
+| `device/device_manager.py` | Discovers ADB devices and probes health. |
+| `device/ldplayer_ctl.py` | Launches/closes the LDPlayer emulator on Windows. |
+| `tests/` | Unit tests (`test_report_data.py`, `test_ldplayer_ctl.py`, `test_report_server.py`). |
 | `scrcpy-win64/` | Vendored scrcpy v3.x Windows binaries (scrcpy.exe, adb.exe, dlls). |
-| `aggregate_report.py` | Generates the global `report.html` dashboard, aggregating all test runs by date. |
-| `report_server.py` | Local HTTP server (`python report_server.py`) serving the dashboard and handling delete APIs. |
 | `report_run/` | Per-test output dirs (`log.txt`, `report.html`, `recording_*.mp4`). Gitignored. |
 
 ## Requirements
@@ -64,17 +72,6 @@ python dagster/report_server.py --port 7070
 # Open in your browser:
 # http://localhost:7070/
 ```
-
-### Self-update
-
-Each invocation of `dagster_run.py` starts with a best-effort `git pull --ff-only` against `origin/<current-branch>`. Test machines stay current automatically; the run continues even if the pull fails (network down, missing git binary, non-fast-forward).
-
-To disable the auto-update on a dev machine, do **either** of:
-
-- Set the environment variable `DAGSTER_NO_UPDATE=1`, **or**
-- Create an empty file `dagster/.no-update` (gitignored).
-
-Parallel multi-device runs only pull in the parent process; children invoked with `--device <serial>` skip the update so that N devices do not trigger N concurrent pulls.
 
 ## Limitations
 

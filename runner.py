@@ -7,9 +7,9 @@ from pathlib import Path
 from airtest.core.api import auto_setup, G
 from airtest.core.settings import Settings as ST
 
-from dagster.reporting import write_log_txt, generate_summary_report
-from dagster.step_capture import clear_steps, get_steps
-from dagster.OpenCVAnnotator import OpenCVAnnotator
+from dagster.reports.reporting import write_log_txt, generate_summary_report
+from dagster.capture.step_capture import clear_steps, get_steps
+from dagster.recording.OpenCVAnnotator import OpenCVAnnotator
 
 
 def run_single_test(air_path: Path, py_script: Path, mode: str, device_id: str, report_root: Path) -> bool:
@@ -35,7 +35,7 @@ def run_single_test(air_path: Path, py_script: Path, mode: str, device_id: str, 
     recordings = []
     
     try:
-        from dagster.ScrcpyRecorder import ScrcpyRecorder
+        from dagster.recording.ScrcpyRecorder import ScrcpyRecorder
         recorder = ScrcpyRecorder(
             output=str(recording_path),
             fps=60,
@@ -49,7 +49,7 @@ def run_single_test(air_path: Path, py_script: Path, mode: str, device_id: str, 
     except Exception as e:
         print(f"[WARN] Failed to start recorder: {e}", file=sys.stderr)
 
-    from dagster.error_capture import clear_errors
+    from dagster.capture.error_capture import clear_errors
     clear_errors()
     clear_steps()
     OpenCVAnnotator.reset(test_name=module_name)
@@ -127,7 +127,7 @@ def run_single_test(air_path: Path, py_script: Path, mode: str, device_id: str, 
         if status == "PASS" and any(s["status"] == "FAIL" for s in steps):
             status = "FAIL"
 
-        from dagster.error_capture import get_errors
+        from dagster.capture.error_capture import get_errors
         errors = get_errors()
         if errors and status == "PASS":
             status = "FAIL"
