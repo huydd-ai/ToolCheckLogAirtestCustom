@@ -1,7 +1,7 @@
 """Simple HTTP server for the aggregate test report.
 
 Serves static files from REPORT_ROOT and handles POST actions
-(delete, delete-date, rerun, rerun-terminate, run).
+(delete, delete-date, rerun, rerun-terminate, terminate-all, run).
 
 Usage:
     python report_server.py [--port PORT] [--root REPORT_ROOT]
@@ -126,6 +126,36 @@ def _prune_jobs() -> None:
         _jobs.pop(job["job_id"], None)
 
 
+def _terminate_job(job: dict) -> None:
+    """Terminate a running job's process, force-stop the game app, mark the
+    job failed and close its log handle. No-op if the job already finished."""
+    if job["status"] != "running":
+        return
+    try:
+        job["proc"].terminate()
+    except OSError:
+        pass
+    try:
+        try:
+            from dotenv import load_dotenv
+            # Load .env from dagster/ directory
+            load_dotenv(dotenv_path=Path(__file__).parent / ".env")
+        except ImportError:
+            pass
+        pkg = os.environ.get("GAME_PACKAGE", "com.woodpuzzle.pin3d")
+        subprocess.run(["adb", "shell", "am", "force-stop", pkg], check=False)
+    except Exception:
+        pass
+    with _jobs_lock:
+        if job["status"] != "running":  # reaped as done while we were terminating
+            return
+        job["status"] = "failed"
+        job["exit_code"] = job["proc"].poll()
+        lf = job.get("log_file")
+        if lf and not lf.closed:
+            lf.close()
+
+
 REPORT_ROOT = Path(__file__).parent / "report_run"
 
 
@@ -222,6 +252,9 @@ class ReportHandler(SimpleHTTPRequestHandler):
             job_id = self.path.removeprefix("/rerun-terminate/")
             self._handle_rerun_terminate(job_id)
             return
+        if self.path == "/terminate-all":
+            self._handle_terminate_all()
+            return
         if self.path == "/run":
             self._handle_run()
             return
@@ -314,29 +347,15 @@ class ReportHandler(SimpleHTTPRequestHandler):
         if job is None:
             self._json(404, {"error": "unknown job"})
             return
-        if job["status"] == "running":
-            try:
-                job["proc"].terminate()
-            except OSError:
-                pass
-            try:
-                try:
-                    from dotenv import load_dotenv
-                    # Load .env from dagster/ directory
-                    load_dotenv(dotenv_path=Path(__file__).parent / ".env")
-                except ImportError:
-                    pass
-                pkg = os.environ.get("GAME_PACKAGE", "com.woodpuzzle.pin3d")
-                subprocess.run(["adb", "shell", "am", "force-stop", pkg], check=False)
-            except Exception:
-                pass
-            with _jobs_lock:
-                job["status"] = "failed"
-                job["exit_code"] = job["proc"].poll()
-                lf = job.get("log_file")
-                if lf and not lf.closed:
-                    lf.close()
+        _terminate_job(job)
         self._json(200, {"status": "terminated"})
+
+    def _handle_terminate_all(self) -> None:
+        with _jobs_lock:
+            running = [j for j in _jobs.values() if j["status"] == "running"]
+        for job in running:
+            _terminate_job(job)
+        self._json(200, {"terminated": [j["job_id"] for j in running]})
 
     def _handle_rerun(self, folder_name: str) -> None:
         target = _safe_under_root(folder_name)
@@ -466,6 +485,12 @@ class ReportHandler(SimpleHTTPRequestHandler):
     def do_GET(self):
         # Strip query/fragment before route matching (same as translate_path)
         clean = self.path.split("?", 1)[0].split("#", 1)[0]
+        
+        if clean == "/favicon.ico":
+            self.send_response(204)
+            self.end_headers()
+            return
+
         if clean.startswith("/rerun-status/"):
             job_id = clean.removeprefix("/rerun-status/")
             self._handle_rerun_status(job_id)

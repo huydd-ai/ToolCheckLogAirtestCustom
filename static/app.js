@@ -9,6 +9,7 @@ document.addEventListener('alpine:init', () => {
         online: true,
         etag: '',
         jobs: {}, // { folder_name: {status, job_id} }
+        batchCancelled: false, // set by cancelAllTests() to abort a Run All loop
         
         // filters
         searchQuery: '',
@@ -217,8 +218,10 @@ document.addEventListener('alpine:init', () => {
                 alert('Emulator failed to start — batch aborted.');
                 return;
             }
+            this.batchCancelled = false;
             try {
                 for (const t of tests) {
+                    if (this.batchCancelled) break;
                     if (this.jobs[t]?.status === 'running') continue;
 
                     await this.runCatalogTest(suite, t, false); // batch: no per-test open/close
@@ -257,6 +260,19 @@ document.addEventListener('alpine:init', () => {
             try {
                 await fetch('/rerun-terminate/' + encodeURIComponent(jobId), { method: 'POST' });
             } catch (err) {}
+        },
+
+        get anyRunning() {
+            return Object.values(this.jobs).some(j => j?.status === 'running');
+        },
+
+        async cancelAllTests() {
+            if (!confirm('Cancel ALL running tests?')) return;
+            this.batchCancelled = true; // abort any in-progress Run All loop
+            try {
+                await fetch('/terminate-all', { method: 'POST' });
+            } catch (err) {}
+            // pollJob picks up the terminated status and updates each job row
         },
 
         async deleteRun(folder) {

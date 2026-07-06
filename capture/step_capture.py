@@ -16,6 +16,15 @@ from dagster.recording.OpenCVAnnotator import OpenCVAnnotator as _Annotator
 import pixon.common.logging_utils as _lu
 _orig_log_info = _lu.log_info
 
+_annotator = None
+
+def init_annotator(test_name: str = ""):
+    global _annotator
+    _annotator = _Annotator(test_name)
+
+def get_annotator():
+    return _annotator
+
 
 def get_current() -> str | None:
     """Return in-flight step name, or last-ran step name if between steps."""
@@ -58,7 +67,7 @@ def _hooked_run_step(name: str, action: Callable[..., Any], *args: Any, **kwargs
     _current = name
     _last = name
     action_name = getattr(action, "__name__", str(action))
-    step = {
+    step: dict[str, Any] = {
         "name": name,
         "action": action_name,
         "status": None,
@@ -91,13 +100,14 @@ def _hooked_run_step(name: str, action: Callable[..., Any], *args: Any, **kwargs
     finally:
         _current = None   # clear in-flight; _last stays
         try:
-            _Annotator().add_step(
-                name=step["name"],
-                action=step["action"],
-                screenshot_path=step.get("screenshot"),
-                status=step.get("status") or "PASS",
-                timestamp=_datetime.now().strftime("%H:%M:%S"),
-            )
+            if _annotator:
+                _annotator.add_step(
+                    name=step["name"],
+                    action=step["action"],
+                    screenshot_path=step.get("screenshot"),
+                    status=step.get("status") or "PASS",
+                    timestamp=_datetime.now().strftime("%H:%M:%S"),
+                )
         except Exception:
             pass
 
@@ -108,7 +118,7 @@ def _hooked_log_info(msg: str, snapshot: bool = True) -> None:
     msg_strip = msg.strip()
     # Intercept milestones to show in Tester View
     if msg_strip.startswith("Start:") or msg_strip.startswith("End:") or msg_strip.startswith("Result:") or msg_strip.startswith("[Step") or "100% complete" in msg_strip:
-        step = {
+        step: dict[str, Any] = {
             "name": msg,
             "action": "log_info",
             "status": "INFO",
@@ -119,13 +129,14 @@ def _hooked_log_info(msg: str, snapshot: bool = True) -> None:
         _steps.append(step)
         
         try:
-            _Annotator().add_step(
-                name=step["name"],
-                action=step["action"],
-                screenshot_path=step.get("screenshot"),
-                status=step.get("status"),
-                timestamp=_datetime.now().strftime("%H:%M:%S"),
-            )
+            if _annotator:
+                _annotator.add_step(
+                    name=step["name"],
+                    action=step["action"],
+                    screenshot_path=step.get("screenshot"),
+                    status=step.get("status"),
+                    timestamp=_datetime.now().strftime("%H:%M:%S"),
+                )
         except Exception:
             pass
 
@@ -135,9 +146,10 @@ def patch_run_step():
 
 
 def clear_steps():
-    global _current, _last
+    global _current, _last, _annotator
     _current = None
     _last = None
+    _annotator = None
     _steps.clear()
 
 

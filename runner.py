@@ -8,8 +8,7 @@ from airtest.core.api import auto_setup, G
 from airtest.core.settings import Settings as ST
 
 from dagster.reports.reporting import write_log_txt, generate_summary_report
-from dagster.capture.step_capture import clear_steps, get_steps
-from dagster.recording.OpenCVAnnotator import OpenCVAnnotator
+from dagster.capture.step_capture import clear_steps, get_steps, init_annotator, get_annotator
 
 
 def run_single_test(air_path: Path, py_script: Path, mode: str, device_id: str, report_root: Path) -> bool:
@@ -52,7 +51,7 @@ def run_single_test(air_path: Path, py_script: Path, mode: str, device_id: str, 
     from dagster.capture.error_capture import clear_errors
     clear_errors()
     clear_steps()
-    OpenCVAnnotator.reset(test_name=module_name)
+    init_annotator(test_name=module_name)
     error_top = None
     status = "PASS"
 
@@ -110,9 +109,10 @@ def run_single_test(air_path: Path, py_script: Path, mode: str, device_id: str, 
                 print(f"[WARN] recorder stop: {e}", file=sys.stderr)
 
         try:
-            annotator = OpenCVAnnotator()
-            annotated_path = out_dir / f"recording_{device_id}_{module_name}_steps.mp4"
-            annotator.finalize(status, annotated_path)
+            annotator = get_annotator()
+            if annotator:
+                annotated_path = out_dir / f"recording_{device_id}_{module_name}_steps.mp4"
+                annotator.finalize(status, annotated_path)
         except Exception as e:
             print(f"[WARN] Failed to create step highlights video: {e}", file=sys.stderr)
 

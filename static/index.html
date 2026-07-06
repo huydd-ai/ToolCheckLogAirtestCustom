@@ -18,6 +18,7 @@
     <div class="tabs">
       <button class="tab-btn" :class="{'active': tab === 'report'}" @click="tab = 'report'">Report</button>
       <button class="tab-btn" :class="{'active': tab === 'catalog'}" @click="tab = 'catalog'">Test Catalog</button>
+      <button class="tab-btn terminate-btn" style="margin-left: auto;" x-show="anyRunning" @click="cancelAllTests()">⏹ Cancel All Running</button>
     </div>
 
     <div x-show="tab === 'report'">
@@ -83,7 +84,7 @@
                     <span class="run-time" x-text="new Date(r.when).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', second:'2-digit'})"></span>
                     <span class="run-duration" x-show="r.duration !== null" x-text="r.duration ? Math.round(r.duration) + 's' : ''"></span>
                     
-                    <span x-show="jobs[r.folder]?.status" style="font-size: 11px; color: var(--text-dim);" x-text="jobs[r.folder].status"></span>
+                    <span x-show="jobs[r.folder]?.status" style="font-size: 11px; color: var(--text-dim);" x-text="jobs[r.folder]?.status"></span>
                     <button class="action-btn rerun-btn" @click="rerunTest(r.folder)" :disabled="jobs[r.folder]?.status === 'running'">↺ Rerun</button>
                     <button class="action-btn terminate-btn" x-show="jobs[r.folder]?.status === 'running'" @click="terminateTest(jobs[r.folder].job_id, r.folder)">⏹ Terminate</button>
                     <button class="delete-btn" title="Delete Report" @click="deleteRun(r.folder)">
@@ -119,7 +120,7 @@
                     <span class="run-name" x-text="t"></span>
                   </div>
                   <div class="run-meta">
-                    <span x-show="jobs[t]?.status" style="font-size: 11px; color: var(--text-dim);" x-text="jobs[t].status"></span>
+                    <span x-show="jobs[t]?.status" style="font-size: 11px; color: var(--text-dim);" x-text="jobs[t]?.status"></span>
                     <button class="action-btn rerun-btn" @click="runCatalogTest(suite, t)" :disabled="jobs[t]?.status === 'running'">▶ Run</button>
                     <button class="action-btn terminate-btn" x-show="jobs[t]?.status === 'running'" @click="terminateTest(jobs[t].job_id, t)">⏹ Terminate</button>
                   </div>

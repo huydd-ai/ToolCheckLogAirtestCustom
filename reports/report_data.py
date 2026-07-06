@@ -146,6 +146,7 @@ def scan_runs(report_root: Path) -> list[RunEntry]:
                 error_summary=error_summary,
             )
         )
+    entries.sort(key=lambda x: x.when, reverse=True)
     return entries
 
 

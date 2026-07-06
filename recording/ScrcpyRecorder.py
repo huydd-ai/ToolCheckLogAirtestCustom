@@ -46,7 +46,7 @@ class ScrcpyRecorder:
     """
 
     def __init__(self, output: str | Path, fps: int = 10, scale: float = 1.0,
-                 device: str | None = None, max_fps: int = 0, bitrate: int = 8_000_000,
+                 device: str | None = None, max_fps: int = 0, bitrate: int = 4_000_000,
                  max_width: int = 0, turn_screen_off: bool = False,
                  stay_awake: bool = False, **kwargs):
         self.output = Path(output)
@@ -129,11 +129,15 @@ class ScrcpyRecorder:
                 self._stop_event.wait(0.2)
             if self.turn_screen_off and self._stop_event.is_set():
                 try:
-                    self._client.control.set_screen_power_mode(scrcpy.POWER_MODE_NORMAL)
+                    client = self._client
+                    if client is not None and getattr(client, "control", None) is not None:
+                        client.control.set_screen_power_mode(scrcpy.POWER_MODE_NORMAL)
                 except Exception:
                     pass
             try:
-                self._client.stop()
+                client = self._client
+                if client is not None:
+                    client.stop()
             except Exception:
                 pass
             if self._disconnected.is_set() and not self._stop_event.is_set():
@@ -147,9 +151,10 @@ class ScrcpyRecorder:
         for _ in range(25):  # ~5s max
             if self._stop_event.is_set():
                 return
-            if getattr(self._client, "control_socket", None) is not None:
+            client = self._client
+            if client is not None and getattr(client, "control", None) is not None and getattr(client, "control_socket", None) is not None:
                 try:
-                    self._client.control.set_screen_power_mode(scrcpy.POWER_MODE_OFF)
+                    client.control.set_screen_power_mode(scrcpy.POWER_MODE_OFF)
                 except Exception as e:
                     print(f"[WARN] ScrcpyRecorder: turn screen off failed: {e}")
                 return
@@ -165,14 +170,14 @@ class ScrcpyRecorder:
                     if self.scale != 1.0:
                         h, w = int(h * self.scale), int(w * self.scale)
                     # Try MSMF avc1 first for browser compatibility on Windows
-                    fourcc = cv2.VideoWriter_fourcc(*'avc1')
+                    fourcc = cv2.VideoWriter.fourcc(*'avc1')
                     candidate = cv2.VideoWriter(str(self.output), cv2.CAP_MSMF, fourcc, float(self.fps), (w, h))
                     if candidate.isOpened():
                         self._writer = candidate
                     else:
                         candidate.release()
                         for codec in ['mp4v', 'X264']:
-                            fourcc = cv2.VideoWriter_fourcc(*codec)
+                            fourcc = cv2.VideoWriter.fourcc(*codec)
                             candidate = cv2.VideoWriter(str(self.output), fourcc, float(self.fps), (w, h))
                             if candidate.isOpened():
                                 self._writer = candidate

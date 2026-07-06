@@ -4,8 +4,14 @@
     {
       "name": "report-server",
       "runtimeExecutable": "python",
-      "runtimeArgs": ["report_server.py", "7070"],
+      "runtimeArgs": ["report_server.py", "--port", "7070"],
       "port": 7070
+    },
+    {
+      "name": "report-server-preview",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["report_server.py", "--port", "7171"],
+      "port": 7171
     }
   ]
 }
