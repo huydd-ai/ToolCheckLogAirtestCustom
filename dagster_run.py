@@ -19,7 +19,6 @@ from pathlib import Path
 _dagster_dir = Path(__file__).resolve().parent
 _project_root = _dagster_dir.parent
 sys.path.insert(0, str(_project_root))
-sys.path.insert(0, str(_dagster_dir))
 
 from airtest.core.api import connect_device, init_device, G
 
