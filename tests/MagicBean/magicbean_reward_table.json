@@ -1,0 +1,22 @@
+{
+  "_note": "Design Image 5 shows an alternate 11-milestone config variant — this file implements the primary 15-milestone config from Image 4 per user decision; the alternate is not implemented.",
+  "magic_bean_reward_table": {
+    "milestones": [
+      {"milestone": 1, "cumulative_wins": 2, "items": {"money": 20}, "coins": 20, "chest": "wood"},
+      {"milestone": 2, "cumulative_wins": 5, "items": {"drill": 1}, "coins": 80, "chest": "wood"},
+      {"milestone": 3, "cumulative_wins": 10, "items": {"hammer": 1, "heart": 15}, "coins": 120, "chest": "copper"},
+      {"milestone": 4, "cumulative_wins": 15, "items": {"money": 30, "magnet": 1}, "coins": 150, "chest": "copper"},
+      {"milestone": 5, "cumulative_wins": 20, "items": {"drill": 1, "hammer": 1}, "coins": 200, "chest": "copper"},
+      {"milestone": 6, "cumulative_wins": 25, "items": {"money": 20, "drill": 2}, "coins": 180, "chest": "silver"},
+      {"milestone": 7, "cumulative_wins": 30, "items": {"hammer": 2, "heart": 30}, "coins": 240, "chest": "silver"},
+      {"milestone": 8, "cumulative_wins": 35, "items": {"money": 50, "magnet": 2}, "coins": 290, "chest": "silver"},
+      {"milestone": 9, "cumulative_wins": 40, "items": {"money": 80, "hammer": 2}, "coins": 320, "chest": "silver"},
+      {"milestone": 10, "cumulative_wins": 45, "items": {"drill": 1, "magnet": 2}, "coins": 320, "chest": "gold"},
+      {"milestone": 11, "cumulative_wins": 50, "items": {"money": 100, "heart": 45}, "coins": 100, "chest": "gold"},
+      {"milestone": 12, "cumulative_wins": 55, "items": {"drill": 1, "hammer": 1, "magnet": 1}, "coins": 320, "chest": "gold"},
+      {"milestone": 13, "cumulative_wins": 60, "items": {"hammer": 2, "magnet": 2}, "coins": 480, "chest": "gold"},
+      {"milestone": 14, "cumulative_wins": 65, "items": {"money": 150, "drill": 2, "heart": 1}, "coins": 430, "chest": "gold"},
+      {"milestone": 15, "cumulative_wins": 70, "items": {"money": 200, "drill": 1, "hammer": 1, "magnet": 1, "heart": 60}, "coins": 520, "chest": "diamond"}
+    ]
+  }
+}

@@ -577,6 +577,13 @@ def main():
     print(f"[report_server] Serving {REPORT_ROOT} at http://localhost:{args.port}/ (bind {args.host})")
     print(f"[report_server] DELETE endpoint: http://localhost:{args.port}/delete/<folder>")
     print(f"[report_server] DELETE-DATE endpoint: http://localhost:{args.port}/delete-date/<YYYY-MM-DD>")
+    
+    import webbrowser
+    try:
+        webbrowser.open(f"http://127.0.0.1:{args.port}/")
+    except Exception as e:
+        print(f"[report_server] Failed to automatically open browser: {e}")
+
     try:
         server.serve_forever()
     except KeyboardInterrupt:

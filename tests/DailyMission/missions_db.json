@@ -1,0 +1,337 @@
+{
+  "daily_missions_db": [
+    {
+      "id": "level_3",
+      "ocr_text": "Complete 3 levels",
+      "task_type": "COMPLETE_LEVEL",
+      "target_amount": 3,
+      "target_item": null,
+      "is_active": true,
+      "exp_reward": 20
+    },
+    {
+      "id": "level_5",
+      "ocr_text": "Complete 5 levels",
+      "task_type": "COMPLETE_LEVEL",
+      "target_amount": 5,
+      "target_item": null,
+      "is_active": true,
+      "exp_reward": 20
+    },
+    {
+      "id": "level_10",
+      "ocr_text": "Complete 10 levels",
+      "task_type": "COMPLETE_LEVEL",
+      "target_amount": 10,
+      "target_item": null,
+      "is_active": true,
+      "exp_reward": 20
+    },
+    {
+      "id": "booster_2",
+      "ocr_text": "Use 2 boosters",
+      "task_type": "USE_BOOSTER",
+      "target_amount": 2,
+      "target_item": "any_booster",
+      "is_active": true,
+      "exp_reward": 20
+    },
+    {
+      "id": "booster_5",
+      "ocr_text": "Use 5 boosters",
+      "task_type": "USE_BOOSTER",
+      "target_amount": 5,
+      "target_item": "any_booster",
+      "is_active": true,
+      "exp_reward": 20
+    },
+    {
+      "id": "booster_10",
+      "ocr_text": "Use 10 boosters",
+      "task_type": "USE_BOOSTER",
+      "target_amount": 10,
+      "target_item": "any_booster",
+      "is_active": true,
+      "exp_reward": 20
+    },
+    {
+      "id": "money_100",
+      "ocr_text": "Use 100 Money",
+      "task_type": "USE_MONEY",
+      "target_amount": 100,
+      "target_item": "money",
+      "is_active": true,
+      "exp_reward": 20
+    },
+    {
+      "id": "money_500",
+      "ocr_text": "Use 500 Money",
+      "task_type": "USE_MONEY",
+      "target_amount": 500,
+      "target_item": "money",
+      "is_active": true,
+      "exp_reward": 20
+    },
+    {
+      "id": "money_1000",
+      "ocr_text": "Use 1000 Money",
+      "task_type": "USE_MONEY",
+      "target_amount": 1000,
+      "target_item": "money",
+      "is_active": true,
+      "exp_reward": 20
+    },
+    {
+      "id": "claim_3",
+      "ocr_text": "Claim 3 Rewards",
+      "task_type": "CLAIM_REWARD",
+      "target_amount": 3,
+      "target_item": "ad_video",
+      "is_active": false,
+      "exp_reward": 20
+    },
+    {
+      "id": "claim_5",
+      "ocr_text": "Claim 5 Rewards",
+      "task_type": "CLAIM_REWARD",
+      "target_amount": 5,
+      "target_item": "ad_video",
+      "is_active": false,
+      "exp_reward": 20
+    },
+    {
+      "id": "claim_10",
+      "ocr_text": "Claim 10 Rewards",
+      "task_type": "CLAIM_REWARD",
+      "target_amount": 10,
+      "target_item": "ad_video",
+      "is_active": false,
+      "exp_reward": 20
+    },
+    {
+      "id": "spin_1",
+      "ocr_text": "Complete 1 Lucky Spins",
+      "task_type": "COMPLETE_SPIN",
+      "target_amount": 1,
+      "target_item": "spin_wheel",
+      "is_active": true,
+      "exp_reward": 20
+    },
+    {
+      "id": "spin_2",
+      "ocr_text": "Complete 2 Lucky Spins",
+      "task_type": "COMPLETE_SPIN",
+      "target_amount": 2,
+      "target_item": "spin_wheel",
+      "is_active": true,
+      "exp_reward": 20
+    },
+    {
+      "id": "spin_3",
+      "ocr_text": "Complete 3 Lucky Spins",
+      "task_type": "COMPLETE_SPIN",
+      "target_amount": 3,
+      "target_item": "spin_wheel",
+      "is_active": true,
+      "exp_reward": 20
+    },
+    {
+      "id": "playtime_15",
+      "ocr_text": "Play for 15 minutes",
+      "task_type": "PLAY_TIME",
+      "target_amount": 15,
+      "target_item": "minutes",
+      "is_active": false,
+      "exp_reward": 20
+    },
+    {
+      "id": "playtime_30",
+      "ocr_text": "Play for 30 minutes",
+      "task_type": "PLAY_TIME",
+      "target_amount": 30,
+      "target_item": "minutes",
+      "is_active": false,
+      "exp_reward": 20
+    },
+    {
+      "id": "playtime_60",
+      "ocr_text": "Play for 60 minutes",
+      "task_type": "PLAY_TIME",
+      "target_amount": 60,
+      "target_item": "minutes",
+      "is_active": false,
+      "exp_reward": 20
+    },
+    {
+      "id": "hammer_2",
+      "ocr_text": "Use 2 Hammers",
+      "task_type": "USE_BOOSTER",
+      "target_amount": 2,
+      "target_item": "hammer",
+      "is_active": true,
+      "exp_reward": 20
+    },
+    {
+      "id": "hammer_5",
+      "ocr_text": "Use 5 Hammers",
+      "task_type": "USE_BOOSTER",
+      "target_amount": 5,
+      "target_item": "hammer",
+      "is_active": true,
+      "exp_reward": 20
+    },
+    {
+      "id": "hammer_8",
+      "ocr_text": "Use 8 Hammers",
+      "task_type": "USE_BOOSTER",
+      "target_amount": 8,
+      "target_item": "hammer",
+      "is_active": true,
+      "exp_reward": 20
+    },
+    {
+      "id": "drill_2",
+      "ocr_text": "Use 2 Drills",
+      "task_type": "USE_BOOSTER",
+      "target_amount": 2,
+      "target_item": "drill",
+      "is_active": true,
+      "exp_reward": 20
+    },
+    {
+      "id": "drill_5",
+      "ocr_text": "Use 5 Drills",
+      "task_type": "USE_BOOSTER",
+      "target_amount": 5,
+      "target_item": "drill",
+      "is_active": true,
+      "exp_reward": 20
+    },
+    {
+      "id": "drill_8",
+      "ocr_text": "Use 8 Drills",
+      "task_type": "USE_BOOSTER",
+      "target_amount": 8,
+      "target_item": "drill",
+      "is_active": true,
+      "exp_reward": 20
+    },
+    {
+      "id": "magnet_2",
+      "ocr_text": "Use 2 Magnets",
+      "task_type": "USE_BOOSTER",
+      "target_amount": 2,
+      "target_item": "magnet",
+      "is_active": true,
+      "exp_reward": 20
+    },
+    {
+      "id": "magnet_5",
+      "ocr_text": "Use 5 Magnets",
+      "task_type": "USE_BOOSTER",
+      "target_amount": 5,
+      "target_item": "magnet",
+      "is_active": true,
+      "exp_reward": 20
+    },
+    {
+      "id": "magnet_8",
+      "ocr_text": "Use 8 Magnets",
+      "task_type": "USE_BOOSTER",
+      "target_amount": 8,
+      "target_item": "magnet",
+      "is_active": true,
+      "exp_reward": 20
+    },
+    {
+      "id": "pin_red_50",
+      "ocr_text": "Collect 50 Red Screw",
+      "task_type": "COLLECT_PIN",
+      "target_amount": 50,
+      "target_item": "pin_red",
+      "is_active": true,
+      "exp_reward": 20
+    },
+    {
+      "id": "pin_green_100",
+      "ocr_text": "Collect 100 Green Screw",
+      "task_type": "COLLECT_PIN",
+      "target_amount": 100,
+      "target_item": "pin_green",
+      "is_active": true,
+      "exp_reward": 20
+    },
+    {
+      "id": "pin_yellow_150",
+      "ocr_text": "Collect 150 Yellow Screw",
+      "task_type": "COLLECT_PIN",
+      "target_amount": 150,
+      "target_item": "pin_yellow",
+      "is_active": true,
+      "exp_reward": 20
+    },
+    {
+      "id": "pin_gray_50",
+      "ocr_text": "Collect 50 Gray Screw",
+      "task_type": "COLLECT_PIN",
+      "target_amount": 50,
+      "target_item": "pin_gray",
+      "is_active": true,
+      "exp_reward": 20
+    },
+    {
+      "id": "pin_orange_100",
+      "ocr_text": "Collect 100 Orange Screw",
+      "task_type": "COLLECT_PIN",
+      "target_amount": 100,
+      "target_item": "pin_orange",
+      "is_active": true,
+      "exp_reward": 20
+    },
+    {
+      "id": "pin_lightblue_150",
+      "ocr_text": "Collect 150 Light Blue Screw",
+      "task_type": "COLLECT_PIN",
+      "target_amount": 150,
+      "target_item": "pin_light_blue",
+      "is_active": true,
+      "exp_reward": 20
+    },
+    {
+      "id": "pin_darkblue_50",
+      "ocr_text": "Collect 50 Dark Blue Screw",
+      "task_type": "COLLECT_PIN",
+      "target_amount": 50,
+      "target_item": "pin_dark_blue",
+      "is_active": true,
+      "exp_reward": 20
+    },
+    {
+      "id": "pin_pink_100",
+      "ocr_text": "Collect 100 Pink Screw",
+      "task_type": "COLLECT_PIN",
+      "target_amount": 100,
+      "target_item": "pin_pink",
+      "is_active": true,
+      "exp_reward": 20
+    },
+    {
+      "id": "pin_brown_150",
+      "ocr_text": "Collect 150 Brown Screw",
+      "task_type": "COLLECT_PIN",
+      "target_amount": 150,
+      "target_item": "pin_brown",
+      "is_active": true,
+      "exp_reward": 20
+    },
+    {
+      "id": "pin_purple_50",
+      "ocr_text": "Collect 50 Purple Screw",
+      "task_type": "COLLECT_PIN",
+      "target_amount": 50,
+      "target_item": "pin_purple",
+      "is_active": true,
+      "exp_reward": 20
+    }
+  ]
+}
