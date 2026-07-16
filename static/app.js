@@ -7,6 +7,7 @@ document.addEventListener('alpine:init', () => {
         tab: 'report', // 'report' or 'catalog'
         loading: false,
         online: true,
+        apiError: '',
         etag: '',
         jobs: {}, // { folder_name: {status, job_id} }
         batchCancelled: false, // set by cancelAllTests() to abort a Run All loop
@@ -93,6 +94,10 @@ document.addEventListener('alpine:init', () => {
                     this.etag = res.headers.get('ETag');
                     await this.fetchMetrics();
                     await this.fetchCatalog();
+                    this.apiError = '';
+                } else if (res.status !== 304) {
+                    const body = await res.json().catch(() => ({}));
+                    this.apiError = `API error ${res.status}: ${body.error || 'unexpected response'}`;
                 }
             } catch (err) {
                 this.online = false;
@@ -284,6 +289,7 @@ document.addEventListener('alpine:init', () => {
                         }
                     } catch(e) {
                         clearInterval(interval);
+                        this.jobs[key] = { status: 'poll error' };
                         resolve('error');
                     }
                 }, 2000);

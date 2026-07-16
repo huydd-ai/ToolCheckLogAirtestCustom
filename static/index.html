@@ -10,10 +10,12 @@
 </head>
 <body x-data="dashboard()">
   <div class="container" x-cloak>
-    <h1>Dagster Test Dashboard 
+    <h1>Dagster Test Dashboard
       <span x-show="loading" style="font-size: 14px; font-weight: normal; color: var(--text-dim);">updating...</span>
       <span x-show="!online" style="font-size: 14px; font-weight: normal; color: var(--fail);">offline</span>
     </h1>
+
+    <div class="api-error-banner" x-show="apiError" x-text="apiError"></div>
 
     <div class="tabs">
       <button class="tab-btn" :class="{'active': tab === 'report'}" @click="tab = 'report'">Report</button>

@@ -154,3 +154,15 @@ li:hover { border-color: var(--border); transform: translateX(4px); }
 }
 
 [x-cloak] { display: none !important; }
+
+.api-error-banner {
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid var(--fail);
+  color: var(--fail);
+  border-radius: var(--r);
+  padding: 10px 16px;
+  margin-bottom: 16px;
+  font-size: 13px;
+  font-family: monospace;
+  white-space: pre-wrap;
+}
