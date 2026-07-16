@@ -60,5 +60,17 @@ def test_terminate_job_noop_on_finished_job(monkeypatch):
     assert job["status"] == "done"
 
 
+def test_second_bind_same_port_fails():
+    """Two servers must not silently share one port (Windows SO_REUSEADDR quirk)."""
+    s1 = rs.ReportServer(("127.0.0.1", 0), rs.ReportHandler)
+    port = s1.server_address[1]
+    try:
+        with pytest.raises(OSError):
+            s2 = rs.ReportServer(("127.0.0.1", port), rs.ReportHandler)
+            s2.server_close()
+    finally:
+        s1.server_close()
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

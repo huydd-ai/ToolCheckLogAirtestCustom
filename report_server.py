@@ -553,6 +553,12 @@ class ReportHandler(SimpleHTTPRequestHandler):
         self.wfile.write(body)
 
 
+class ReportServer(ThreadingHTTPServer):
+    # Two instances silently double-bind one port on Windows with SO_REUSEADDR;
+    # fail fast with "address already in use" instead.
+    allow_reuse_address = False
+
+
 def main():
     global REPORT_ROOT
     parser = argparse.ArgumentParser(description="Dagster test report server")
@@ -573,7 +579,7 @@ def main():
     except Exception as e:
         print(f"[report_server] Failed to regenerate report: {e}")
 
-    server = ThreadingHTTPServer((args.host, args.port), ReportHandler)
+    server = ReportServer((args.host, args.port), ReportHandler)
     print(f"[report_server] Serving {REPORT_ROOT} at http://localhost:{args.port}/ (bind {args.host})")
     print(f"[report_server] DELETE endpoint: http://localhost:{args.port}/delete/<folder>")
     print(f"[report_server] DELETE-DATE endpoint: http://localhost:{args.port}/delete-date/<YYYY-MM-DD>")
