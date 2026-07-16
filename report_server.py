@@ -305,6 +305,37 @@ class ReportHandler(SimpleHTTPRequestHandler):
         ldplayer_ctl.quit()
         self._json(200, {"status": "stopped"})
 
+    def _spawn_job(self, suite: str, stem: str, air_arg: str) -> None:
+        """Launch dagster_run.py for one .air test and register the job.
+        Sends the JSON response itself. Caller must NOT hold _jobs_lock."""
+        with _jobs_lock:
+            if _find_running_job(suite, stem) is not None:
+                self._json(409, {"error": "already running"})
+                return
+            job_id = str(uuid.uuid4())
+            log_path = REPORT_ROOT / f"{job_id}.log"
+            log_file = log_path.open("w", encoding="utf-8")
+            dagster_run = Path(__file__).parent / "dagster_run.py"
+            env = os.environ.copy()
+            env["PYTHONIOENCODING"] = "utf-8"
+            try:
+                proc = subprocess.Popen(
+                    [sys.executable, "-u", str(dagster_run), air_arg],
+                    stdout=log_file, stderr=subprocess.STDOUT, env=env,
+                )
+            except FileNotFoundError:
+                log_file.close()
+                self._json(500, {"error": "dagster_run.py not found"})
+                return
+            _jobs[job_id] = {
+                "job_id": job_id, "suite": suite, "stem": stem,
+                "air_path": air_arg, "proc": proc, "status": "running",
+                "new_folder": None, "exit_code": None, "started": time.time(),
+                "log_file": log_file, "log_path": log_path,
+            }
+            _prune_jobs()
+        self._json(200, {"job_id": job_id})
+
     def _handle_run(self) -> None:
         try:
             length = int(self.headers.get("Content-Length", "0") or "0")
@@ -322,33 +353,7 @@ class ReportHandler(SimpleHTTPRequestHandler):
             return
         suite = p.parent.name or "unknown"
         stem = p.stem
-        with _jobs_lock:
-            if _find_running_job(suite, stem) is not None:
-                self._json(409, {"error": "already running"})
-                return
-            job_id = str(uuid.uuid4())
-            log_path = REPORT_ROOT / f"{job_id}.log"
-            log_file = log_path.open("w", encoding="utf-8")
-            dagster_run = Path(__file__).parent / "dagster_run.py"
-            env = os.environ.copy()
-            env["PYTHONIOENCODING"] = "utf-8"
-            try:
-                proc = subprocess.Popen(
-                    [sys.executable, "-u", str(dagster_run), str(p)],
-                    stdout=log_file, stderr=subprocess.STDOUT, env=env,
-                )
-            except FileNotFoundError:
-                log_file.close()
-                self._json(500, {"error": "dagster_run.py not found"})
-                return
-            _jobs[job_id] = {
-                "job_id": job_id, "suite": suite, "stem": stem,
-                "air_path": str(p), "proc": proc, "status": "running",
-                "new_folder": None, "exit_code": None, "started": time.time(),
-                "log_file": log_file, "log_path": log_path,
-            }
-            _prune_jobs()
-        self._json(200, {"job_id": job_id})
+        self._spawn_job(suite, stem, str(p))
 
     def _handle_rerun_terminate(self, job_id: str) -> None:
         with _jobs_lock:
@@ -386,45 +391,7 @@ class ReportHandler(SimpleHTTPRequestHandler):
             return
         stem = m.group(1)
         suite = Path(air_path).parent.name or "unknown"
-        with _jobs_lock:
-            if _find_running_job(suite, stem) is not None:
-                self._json(409, {"error": "already running"})
-                return
-            job_id = str(uuid.uuid4())
-            log_path = REPORT_ROOT / f"{job_id}.log"
-            # Keep file open for the lifetime of the process
-            log_file = log_path.open("w", encoding="utf-8")
-            
-            dagster_run = Path(__file__).parent / "dagster_run.py"
-            env = os.environ.copy()
-            env["PYTHONIOENCODING"] = "utf-8"
-            try:
-                proc = subprocess.Popen(
-                    [sys.executable, "-u", str(dagster_run), air_path],
-                    stdout=log_file,
-                    stderr=subprocess.STDOUT,
-                    env=env
-                )
-            except FileNotFoundError:
-                log_file.close()
-                self._json(500, {"error": "dagster_run.py not found"})
-                return
-            
-            _jobs[job_id] = {
-                "job_id": job_id,
-                "stem": stem,
-                "suite": suite,
-                "air_path": air_path,
-                "proc": proc,
-                "status": "running",
-                "new_folder": None,
-                "exit_code": None,
-                "started": time.time(),
-                "log_file": log_file,
-                "log_path": log_path,
-            }
-            _prune_jobs()
-        self._json(200, {"job_id": job_id})
+        self._spawn_job(suite, stem, air_path)
 
     def _handle_rerun_status(self, job_id: str) -> None:
         with _jobs_lock:
