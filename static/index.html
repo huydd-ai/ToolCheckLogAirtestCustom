@@ -13,6 +13,7 @@
     <h1>Dagster Test Dashboard
       <span x-show="loading" style="font-size: 14px; font-weight: normal; color: var(--text-dim);">updating...</span>
       <span x-show="!online" style="font-size: 14px; font-weight: normal; color: var(--fail);">offline</span>
+      <span x-show="lastUpdated" style="font-size: 12px; font-weight: normal; color: var(--text-dim); margin-left: auto;" x-text="lastUpdated ? 'updated ' + lastUpdated.toLocaleTimeString() : ''"></span>
     </h1>
 
     <div class="api-error-banner" x-show="apiError" x-text="apiError"></div>
@@ -141,30 +142,23 @@
 
     <div x-show="tab === 'benchmark'">
       <div class="group-content" style="padding-top: 16px; overflow-x: auto;">
-        <table style="width:100%; border-collapse: collapse; font-family: sans-serif; font-size: 13px; background: var(--bg-card); border: 1px solid var(--border); box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
-          <thead style="position: sticky; top: 0; background: var(--bg-item); z-index: 10;">
+        <table class="bench-table">
+          <thead>
             <tr>
-              <th style="padding: 8px 12px; font-weight: 600; text-align: left; border: 1px solid var(--border); border-bottom: 2px solid var(--border); white-space: nowrap;">Test Case</th>
-              <th style="padding: 8px 12px; font-weight: 600; text-align: left; border: 1px solid var(--border); border-bottom: 2px solid var(--border); white-space: nowrap;">Runs</th>
-              <th style="padding: 8px 12px; font-weight: 600; text-align: left; border: 1px solid var(--border); border-bottom: 2px solid var(--border); white-space: nowrap;">Avg (s)</th>
-              <th style="padding: 8px 12px; font-weight: 600; text-align: left; border: 1px solid var(--border); border-bottom: 2px solid var(--border); white-space: nowrap;">Median (s)</th>
-              <th style="padding: 8px 12px; font-weight: 600; text-align: left; border: 1px solid var(--border); border-bottom: 2px solid var(--border); white-space: nowrap;">Min (s)</th>
-              <th style="padding: 8px 12px; font-weight: 600; text-align: left; border: 1px solid var(--border); border-bottom: 2px solid var(--border); white-space: nowrap;">Max (s)</th>
-              <th style="padding: 8px 12px; font-weight: 600; text-align: center; border: 1px solid var(--border); border-bottom: 2px solid var(--border); white-space: nowrap;">Score (Max 100)</th>
+              <th>Test Case</th><th>Runs</th><th>Avg (s)</th><th>Median (s)</th>
+              <th>Min (s)</th><th>Max (s)</th><th style="text-align:center;">Score (Max 100)</th>
             </tr>
           </thead>
           <tbody>
-            <template x-for="(b, i) in benchmarks" :key="b.stem">
-              <tr :style="`background: ${i % 2 === 0 ? 'transparent' : 'var(--bg-item)'}; transition: background 0.15s;`" 
-                  onmouseover="this.style.filter='brightness(1.5)'" 
-                  onmouseout="this.style.filter='none'">
-                <td style="padding: 8px 12px; border: 1px solid var(--border); white-space: nowrap; font-weight: 500;" x-text="b.stem"></td>
-                <td style="padding: 8px 12px; border: 1px solid var(--border); white-space: nowrap; font-family: monospace; text-align: right; color: var(--text-dim);" x-text="b.runs"></td>
-                <td style="padding: 8px 12px; border: 1px solid var(--border); white-space: nowrap; font-family: monospace; text-align: right;" x-text="b.avg"></td>
-                <td style="padding: 8px 12px; border: 1px solid var(--border); white-space: nowrap; font-family: monospace; text-align: right; color: var(--text-dim);" x-text="b.median"></td>
-                <td style="padding: 8px 12px; border: 1px solid var(--border); white-space: nowrap; font-family: monospace; text-align: right; color: var(--text-dim);" x-text="b.min"></td>
-                <td style="padding: 8px 12px; border: 1px solid var(--border); white-space: nowrap; font-family: monospace; text-align: right; color: var(--text-dim);" x-text="b.max"></td>
-                <td style="padding: 8px 12px; border: 1px solid var(--border); white-space: nowrap; font-family: monospace; text-align: center; font-weight: bold;" :style="`color: ${b.score >= 80 ? 'var(--pass)' : (b.score >= 50 ? 'var(--warn)' : 'var(--fail)')};`" x-text="b.score"></td>
+            <template x-for="b in benchmarks" :key="b.stem">
+              <tr>
+                <td style="font-weight:500;" x-text="b.stem"></td>
+                <td class="td-num" x-text="b.runs"></td>
+                <td class="td-num" style="color:var(--text-main);" x-text="b.avg"></td>
+                <td class="td-num" x-text="b.median"></td>
+                <td class="td-num" x-text="b.min"></td>
+                <td class="td-num" x-text="b.max"></td>
+                <td class="td-score" :style="`color: ${b.score >= 80 ? 'var(--pass)' : (b.score >= 50 ? 'var(--warn)' : 'var(--fail)')};`" x-text="b.score"></td>
               </tr>
             </template>
           </tbody>

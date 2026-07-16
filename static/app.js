@@ -12,6 +12,7 @@ document.addEventListener('alpine:init', () => {
         jobs: {}, // { folder_name: {status, job_id} }
         logView: { key: null, text: '', offset: 0 }, // one open log panel at a time
         batchCancelled: false, // set by cancelAllTests() to abort a Run All loop
+        lastUpdated: null,
         
         // filters
         searchQuery: '',
@@ -23,8 +24,8 @@ document.addEventListener('alpine:init', () => {
 
         async init() {
             await this.fetchData();
-            setInterval(() => this.fetchData(), 3000);
-            
+            setInterval(() => { if (!document.hidden) this.fetchData(); }, 3000);
+
             this.$watch('metrics', () => this.renderChart());
         },
 
@@ -96,6 +97,7 @@ document.addEventListener('alpine:init', () => {
                     await this.fetchMetrics();
                     await this.fetchCatalog();
                     this.apiError = '';
+                    this.lastUpdated = new Date();
                 } else if (res.status !== 304) {
                     const body = await res.json().catch(() => ({}));
                     this.apiError = `API error ${res.status}: ${body.error || 'unexpected response'}`;
