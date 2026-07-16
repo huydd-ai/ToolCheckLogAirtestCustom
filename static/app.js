@@ -115,10 +115,19 @@ document.addEventListener('alpine:init', () => {
             if (!this.metrics || !this.metrics.trend) return;
             const ctx = document.getElementById('trendChart');
             if (!ctx) return;
-            
-            const labels = this.metrics.trend.map(t => t.date);
-            const passRates = this.metrics.trend.map(t => t.pass_rate);
-            const totals = this.metrics.trend.map(t => t.total);
+
+            // Pad a synthetic previous day when there is a single point so the
+            // line chart can draw a line (presentation-only; API returns real dates).
+            let trend = this.metrics.trend;
+            if (trend.length === 1) {
+                const d = new Date(trend[0].date + 'T00:00:00');
+                d.setDate(d.getDate() - 1);
+                const prev = d.toISOString().slice(0, 10);
+                trend = [{ date: prev, total: 0, pass_rate: trend[0].pass_rate }, ...trend];
+            }
+            const labels = trend.map(t => t.date);
+            const passRates = trend.map(t => t.pass_rate);
+            const totals = trend.map(t => t.total);
             
             if (this.chartInstance) {
                 this.chartInstance.data.labels = labels;
