@@ -10,7 +10,8 @@ document.addEventListener('alpine:init', () => {
         apiError: '',
         etag: '',
         jobs: {}, // { folder_name: {status, job_id} }
-        logView: { key: null, text: '', offset: 0 }, // one open log panel at a time
+        logView: { key: null, text: '', offset: 0, jobId: null }, // one open log panel at a time
+        _logFetchInFlight: false,
         batchCancelled: false, // set by cancelAllTests() to abort a Run All loop
         lastUpdated: null,
         
@@ -278,26 +279,37 @@ document.addEventListener('alpine:init', () => {
 
         toggleLogs(key) {
             if (this.logView.key === key) {
-                this.logView = { key: null, text: '', offset: 0 };
+                this.logView = { key: null, text: '', offset: 0, jobId: null };
             } else {
-                this.logView = { key: key, text: '', offset: 0 };
+                this.logView = { key: key, text: '', offset: 0, jobId: null };
                 this.fetchLogs();
             }
         },
 
         async fetchLogs() {
-            const key = this.logView.key;
-            if (!key) return;
-            const jobId = this.jobs[key]?.job_id;
-            if (!jobId) return;
+            if (this._logFetchInFlight) return;
+            this._logFetchInFlight = true;
             try {
-                const res = await fetch(`/rerun-logs/${encodeURIComponent(jobId)}?offset=${this.logView.offset}`);
-                if (!res.ok) return;
-                const data = await res.json();
-                if (this.logView.key !== key) return; // panel switched while fetching
-                if (data.text) this.logView.text += data.text;
-                this.logView.offset = data.offset;
-            } catch (e) { /* next tick retries */ }
+                const key = this.logView.key;
+                if (!key) return;
+                const jobId = this.jobs[key]?.job_id;
+                if (!jobId) return;
+                if (this.logView.jobId !== jobId) {
+                    this.logView.text = '';
+                    this.logView.offset = 0;
+                    this.logView.jobId = jobId;
+                }
+                try {
+                    const res = await fetch(`/rerun-logs/${encodeURIComponent(jobId)}?offset=${this.logView.offset}`);
+                    if (!res.ok) return;
+                    const data = await res.json();
+                    if (this.logView.key !== key) return; // panel switched while fetching
+                    if (data.text) this.logView.text += data.text;
+                    this.logView.offset = data.offset;
+                } catch (e) { /* next tick retries */ }
+            } finally {
+                this._logFetchInFlight = false;
+            }
         },
 
         pollJob(jobId, key, standalone = true) {
@@ -310,6 +322,7 @@ document.addEventListener('alpine:init', () => {
                         if (data.status !== 'running') {
                             clearInterval(interval);
                             this.jobs[key] = { status: data.status === 'done' ? 'completed' : 'failed', job_id: jobId };
+                            if (this.logView.key === key) await this.fetchLogs();
                             if (standalone) await this.stopEmulator(); // close on any terminal state
                             this.etag = ''; // force reload on next fetch
                             this.fetchData();
