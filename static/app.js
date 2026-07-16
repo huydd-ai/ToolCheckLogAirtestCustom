@@ -10,6 +10,7 @@ document.addEventListener('alpine:init', () => {
         apiError: '',
         etag: '',
         jobs: {}, // { folder_name: {status, job_id} }
+        logView: { key: null, text: '', offset: 0 }, // one open log panel at a time
         batchCancelled: false, // set by cancelAllTests() to abort a Run All loop
         
         // filters
@@ -273,9 +274,34 @@ document.addEventListener('alpine:init', () => {
             }
         },
 
+        toggleLogs(key) {
+            if (this.logView.key === key) {
+                this.logView = { key: null, text: '', offset: 0 };
+            } else {
+                this.logView = { key: key, text: '', offset: 0 };
+                this.fetchLogs();
+            }
+        },
+
+        async fetchLogs() {
+            const key = this.logView.key;
+            if (!key) return;
+            const jobId = this.jobs[key]?.job_id;
+            if (!jobId) return;
+            try {
+                const res = await fetch(`/rerun-logs/${encodeURIComponent(jobId)}?offset=${this.logView.offset}`);
+                if (!res.ok) return;
+                const data = await res.json();
+                if (this.logView.key !== key) return; // panel switched while fetching
+                if (data.text) this.logView.text += data.text;
+                this.logView.offset = data.offset;
+            } catch (e) { /* next tick retries */ }
+        },
+
         pollJob(jobId, key, standalone = true) {
             return new Promise(resolve => {
                 const interval = setInterval(async () => {
+                    if (this.logView.key === key) this.fetchLogs();
                     try {
                         const res = await fetch('/rerun-status/' + encodeURIComponent(jobId));
                         const data = await res.json();
