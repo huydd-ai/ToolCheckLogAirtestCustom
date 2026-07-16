@@ -30,7 +30,7 @@ sys.path.insert(0, str(_project_root))
 PROJECT_ROOT = _project_root
 TEST_ROOT = (_project_root / "Test").resolve()
 
-from dagster.reports.aggregate_report import parse_run_folder_name, regenerate_global_report
+from dagster.reports.aggregate_report import regenerate_global_report  # noqa: E402 — import must follow sys.path.insert above
 
 
 def extract_air_path(log_path: Path) -> str | None:

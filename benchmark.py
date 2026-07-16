@@ -9,7 +9,7 @@ _dagster_dir = Path(__file__).resolve().parent
 _project_root = _dagster_dir.parent
 sys.path.insert(0, str(_project_root))
 
-from dagster.reports.report_data import scan_runs
+from dagster.reports.report_data import scan_runs  # noqa: E402 — import must follow sys.path.insert above
 
 def main():
     parser = argparse.ArgumentParser(description="Calculate test case benchmark times.")

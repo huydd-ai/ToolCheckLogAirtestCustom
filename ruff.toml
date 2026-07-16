@@ -1,0 +1,12 @@
+# Lint only the runner's own code — mirrored .air suites and vendored pixon
+# follow Airtest star-import conventions and are not ours to restyle.
+exclude = [
+    "tests_mirror",
+    "pixon",
+    "graphify-out",
+    "scrcpy-win64",
+    "static",
+]
+
+[lint]
+select = ["E4", "E7", "E9", "F"]

@@ -1,19 +1,17 @@
 from datetime import datetime as _datetime
 import time as _time
-from pathlib import Path
 from typing import Any, Callable
 
-from airtest.core.settings import Settings as ST
 from pixon.common import test_flow as _tf
+import pixon.common.logging_utils as _lu
+
+from dagster.capture.log_utils import latest_screenshot as _latest_screenshot
+from dagster.recording.OpenCVAnnotator import OpenCVAnnotator as _Annotator
 
 _steps: list[dict] = []
 _current: str | None = None   # in-flight: set while run_step executes
 _last: str | None = None       # persistent: last step that ran, never cleared
 _orig_run_step = _tf.run_step
-
-from dagster.capture.log_utils import latest_screenshot as _latest_screenshot
-from dagster.recording.OpenCVAnnotator import OpenCVAnnotator as _Annotator
-import pixon.common.logging_utils as _lu
 _orig_log_info = _lu.log_info
 
 _annotator = None

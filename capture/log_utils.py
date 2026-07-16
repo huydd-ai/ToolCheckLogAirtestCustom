@@ -1,5 +1,8 @@
 import logging
 import sys
+from pathlib import Path
+
+from airtest.core.settings import Settings as ST
 
 LOG_LEVEL: int = logging.DEBUG
 
@@ -15,9 +18,6 @@ def setup_console_logging(level: int = logging.INFO) -> None:
         if not any(isinstance(h, logging.StreamHandler) for h in lg.handlers):
             lg.addHandler(handler)
         lg.propagate = False
-
-from pathlib import Path
-from airtest.core.settings import Settings as ST
 
 def latest_screenshot() -> str | None:
     """Find the most recently modified .jpg/.png in ST.LOG_DIR."""

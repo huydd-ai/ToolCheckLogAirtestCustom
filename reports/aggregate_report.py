@@ -3,10 +3,8 @@
 from __future__ import annotations
 
 import os
-import re
 import uuid
-from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date
 from html import escape
 from pathlib import Path
 
@@ -21,10 +19,10 @@ def _js_arg(s: str) -> str:
 
 try:
     from dagster.reports.report_theme import THEME_CSS
-    from dagster.reports.report_data import RunEntry, scan_runs, scan_catalog, parse_run_folder_name
+    from dagster.reports.report_data import RunEntry, scan_runs, scan_catalog
 except ModuleNotFoundError:
     from report_theme import THEME_CSS
-    from report_data import RunEntry, scan_runs, scan_catalog, parse_run_folder_name
+    from report_data import RunEntry, scan_runs, scan_catalog
 
 def build_catalog(
     test_root: Path, entries: list[RunEntry]
@@ -703,7 +701,7 @@ def _append_catalog(html: list[str], catalog: list[tuple[str, list[dict]]]) -> N
     idx = 0
     for suite, tests in catalog:
         html.append('<details open class="suite-group">')
-        html.append(f'<summary class="suite-summary" style="display: flex; align-items: center;">')
+        html.append('<summary class="suite-summary" style="display: flex; align-items: center;">')
         html.append(f'<span style="flex: 1;"><span>{escape(suite)}</span> &mdash; {len(tests)} tests</span>')
         html.append(f'<button class="rerun-btn run-all-btn" onclick="runAllTests(this)" title="Run all tests in {escape(suite)}" style="margin-right: 16px;">▶ Run All</button>')
         html.append('</summary>')
@@ -712,7 +710,6 @@ def _append_catalog(html: list[str], catalog: list[tuple[str, list[dict]]]) -> N
             key = f"cat{idx}"
             idx += 1
             stem = escape(t["stem"])
-            air = escape(t["air_path"], quote=True)
             stem_js = _js_arg(t["stem"])
             air_js = _js_arg(t["air_path"])
             status = t["last_status"]
