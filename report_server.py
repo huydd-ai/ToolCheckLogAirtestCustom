@@ -171,7 +171,7 @@ def parse_offset(query: dict) -> int | None:
     """Parse a non-negative ?offset= value; None if malformed."""
     try:
         offset = int(query.get("offset", ["0"])[0])
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, IndexError):
         return None
     return offset if offset >= 0 else None
 

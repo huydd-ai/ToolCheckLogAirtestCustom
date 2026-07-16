@@ -77,6 +77,7 @@ def test_parse_offset_valid_invalid():
     assert rs.parse_offset({}) == 0
     assert rs.parse_offset({"offset": ["abc"]}) is None
     assert rs.parse_offset({"offset": ["-5"]}) is None
+    assert rs.parse_offset({"offset": []}) is None
 
 
 if __name__ == "__main__":
