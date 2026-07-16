@@ -587,7 +587,7 @@ def main():
     def sync_tests():
         import stat
         source = str(TEST_ROOT)
-        target = str(_project_root / "dagster" / "tests")
+        target = str(_dagster_dir / "tests_mirror")
         last_mtime = {}
         print(f"[report_server] Auto-syncing tests from {source} to {target}...")
         while True:

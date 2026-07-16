@@ -6,3 +6,5 @@ __pycache__/
 
 # Self-update opt-out marker (per-machine, never committed)
 .no-update
+
+tests_mirror/
