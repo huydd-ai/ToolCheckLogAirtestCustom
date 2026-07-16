@@ -20,6 +20,10 @@ daily = DailyMissionPage()
 
 def main():
     # TC11 -- TODO: Add description
+    # Test Flow:
+    # Step 1: Check Play button found in popup
+    # Step 2: Check In game after tapping Play
+    #
 
     try:
         log_info("Start: tc11_play_popup")
@@ -79,7 +83,7 @@ def main():
         wrapper.log_error(f"TC11_error: {str(e)}")
         snapshot(filename="tc11_error.png")
     finally:
-        teardown_app()
+        teardown_app(__file__)
 
 
 if __name__ == "__main__":

@@ -20,6 +20,11 @@ daily = DailyMissionPage()
 
 def main():
     # TC24 -- TODO: Add description
+    # Test Flow:
+    # Step 1: Read initial active missions
+    # Step 2: Teardown app and change day
+    # Step 3: Check Data reset after new day
+    #
 
     try:
         log_info("Start: tc24_reset_new_day_normal")
@@ -98,7 +103,7 @@ def main():
         wrapper.log_error(f"TC24_error: {str(e)}")
         snapshot(filename="tc24_error.png")
     finally:
-        teardown_app()
+        teardown_app(__file__)
 
 
 if __name__ == "__main__":

@@ -21,6 +21,9 @@ daily = DailyMissionPage()
 def main():
 
     # TC06 -- TODO: Add description
+    # Test Flow:
+    # Step 1: Check Expected 5 missions
+    #
 
     try:
         log_info("Start: tc06_random_mission")
@@ -70,7 +73,7 @@ def main():
         wrapper.log_error(f"TC06_error: {str(e)}")
         snapshot(filename="tc06_error.png")
     finally:
-        teardown_app()
+        teardown_app(__file__)
 
 
 if __name__ == "__main__":

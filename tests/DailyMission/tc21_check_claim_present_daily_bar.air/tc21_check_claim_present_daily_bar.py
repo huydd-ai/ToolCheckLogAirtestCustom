@@ -24,6 +24,10 @@ heart_page = HeartSystemPage()
 
 def main():
     # TC21 -- TODO: Add description
+    # Test Flow:
+    # Step 1: Check Tapping watch RV on attempt {i+1}
+    # Step 2: Check Claim EXP milestone {m} reward
+    #
 
     try:
         log_info("Start: tc21_claim_all_exp")
@@ -83,7 +87,7 @@ def main():
         wrapper.log_error(f"TC21_error: {str(e)}")
         snapshot(filename="tc21_error.png")
     finally:
-        teardown_app()
+        teardown_app(__file__)
 
 
 if __name__ == "__main__":

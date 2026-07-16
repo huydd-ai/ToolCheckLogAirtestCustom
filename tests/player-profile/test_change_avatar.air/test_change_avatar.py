@@ -47,7 +47,7 @@ def main():
         wrapper.log_error(f"TC_change_avatar_error: {str(e)}")
         snapshot(filename="tc_change_avatar_error.png")
     finally:
-        teardown_app()
+        teardown_app(__file__)
 
 
 if __name__ == "__main__":

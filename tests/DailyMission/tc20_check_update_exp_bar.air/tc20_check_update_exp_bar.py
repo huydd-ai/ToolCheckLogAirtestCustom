@@ -24,6 +24,10 @@ heart_page = HeartSystemPage()
 
 def main():
     # TC20 -- TODO: Add description
+    # Test Flow:
+    # Step 1: Check Failed to tap watch RV on attempt {i+1}
+    # Step 2: Check EXP increased
+    #
 
     try:
         log_info("Start: tc20_exp_bar_update")
@@ -78,7 +82,7 @@ def main():
         wrapper.log_error(f"TC20_error: {str(e)}")
         snapshot(filename="tc20_error.png")
     finally:
-        teardown_app()
+        teardown_app(__file__)
 
 
 if __name__ == "__main__":

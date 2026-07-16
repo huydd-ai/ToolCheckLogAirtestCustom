@@ -84,7 +84,8 @@ def variant_no_deduction_active():
 
     log_info("Start: verify no heart deducted on kill")
     run_step("click play", home_page.click_play)
-    sleep(5)
+    # Wait long enough for the game's autosave to persist the heart state
+    sleep(15)
     run_step("force stop app", run_adb_command, ["shell", "am", "force-stop", "com.woodpuzzle.pin3d"])
     sleep(5)
     run_step("teardown app", teardown_app)
@@ -111,7 +112,7 @@ def main():
         wrapper.log_error(f"TC15_error: {str(e)}")
         snapshot(filename="tc15_error.png")
     finally:
-        teardown_app()
+        teardown_app(__file__)
 
 if __name__ == "__main__":
     main()

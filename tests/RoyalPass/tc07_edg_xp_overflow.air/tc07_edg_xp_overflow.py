@@ -162,7 +162,7 @@ def main():
 
     finally:
 
-        teardown_app()
+        teardown_app(__file__)
 
 
 

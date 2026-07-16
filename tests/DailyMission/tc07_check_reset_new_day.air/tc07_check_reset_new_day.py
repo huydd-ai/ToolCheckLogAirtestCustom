@@ -20,6 +20,10 @@ daily = DailyMissionPage()
 
 def main():
     # TC07 -- TODO: Add description
+    # Test Flow:
+    # Step 1: Check daily mission reset state
+    # Step 2: Check Reset complete
+    #
 
     try:
         log_info("Start: tc07_reset_new_day")
@@ -76,7 +80,7 @@ def main():
         wrapper.log_error(f"TC07_error: {str(e)}")
         snapshot(filename="tc07_error.png")
     finally:
-        teardown_app()
+        teardown_app(__file__)
 
 
 if __name__ == "__main__":

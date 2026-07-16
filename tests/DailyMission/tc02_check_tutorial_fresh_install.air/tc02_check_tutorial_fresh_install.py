@@ -22,6 +22,12 @@ daily = DailyMissionPage()
 
 def main():
     # TC02 -- TODO: Add description
+    # Test Flow:
+    # Step 1: Check verify daily mission icon not visible after unlock
+    # Step 2: Check open daily mission popup
+    # Step 3: Check verify daily mission icon on home
+    # Step 4: Check verify notify still visible after tutorial
+    #
 
     try:
         log_info("Start: tc02_tutorial_fresh_install")
@@ -93,7 +99,7 @@ def main():
         wrapper.log_error(f"TC02_error: {str(e)}")
         snapshot(filename="tc02_error.png")
     finally:
-        teardown_app()
+        teardown_app(__file__)
 
 
 if __name__ == "__main__":

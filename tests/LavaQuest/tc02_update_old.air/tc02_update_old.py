@@ -77,7 +77,7 @@ def main():
         snapshot(filename="tc02_error.png")
         log_error(f"TC02_error: {str(e)}")
     finally:
-        teardown_app()
+        teardown_app(__file__)
 
 if __name__ == "__main__":
     main()

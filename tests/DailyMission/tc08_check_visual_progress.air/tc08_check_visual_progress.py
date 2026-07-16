@@ -20,6 +20,10 @@ daily = DailyMissionPage()
 
 def main():
     # TC08 -- TODO: Add description
+    # Test Flow:
+    # Step 1: play mission until completable [{mission_name}]
+    # Step 2: Check Visual progress updated for [{mission_name}]
+    #
 
     try:
         log_info("Start: tc08_visual_progress")
@@ -91,7 +95,7 @@ def main():
         wrapper.log_error(f"TC08_error: {str(e)}")
         snapshot(filename="tc08_error.png")
     finally:
-        teardown_app()
+        teardown_app(__file__)
 
 
 if __name__ == "__main__":

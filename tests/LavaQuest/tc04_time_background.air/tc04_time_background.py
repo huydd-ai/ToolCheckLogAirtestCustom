@@ -116,7 +116,7 @@ def main():
         snapshot(filename="tc04_error.png")
         wrapper.log_error(f"TC04_error: {str(e)}")
     finally:
-        teardown_app()
+        teardown_app(__file__)
 
 if __name__ == "__main__":
     main()

@@ -22,6 +22,11 @@ lucky = LuckySpinPage()
 
 def main():
     # TC23 -- TODO: Add description
+    # Test Flow:
+    # Step 1: Read initial active missions
+    # Step 2: Cold start without clearing data (OFFLINE)
+    # Step 3: Check missions fit with old data
+    #
 
     try:
         log_info("Start: tc23_resume_app")
@@ -103,7 +108,7 @@ def main():
             run_step("Reconnect network", network_reconnect)
         except Exception as e:
             wrapper.log_error(f"Failed to reconnect network: {e}")
-        teardown_app()
+        teardown_app(__file__)
 
 
 if __name__ == "__main__":

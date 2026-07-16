@@ -24,6 +24,12 @@ heart_page = HeartSystemPage()
 
 def main():
     # TC19 -- TODO: Add description
+    # Test Flow:
+    # Step 1: Check Failed to tap watch RV on attempt {i+1}
+    # Step 2: Check Milestone 30 EXP reward claimed
+    # Step 3: Check Milestone 70 EXP reward claimed
+    # Step 4: Check Milestone 100 EXP reward claimed
+    #
 
     try:
         log_info("Start: tc19_exp_milestone_group")
@@ -87,7 +93,7 @@ def main():
         wrapper.log_error(f"TC19_error: {str(e)}")
         snapshot(filename="tc19_exp_milestone_group_error.png")
     finally:
-        teardown_app()
+        teardown_app(__file__)
 
 
 if __name__ == "__main__":

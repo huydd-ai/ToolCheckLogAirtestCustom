@@ -22,6 +22,11 @@ lucky = LuckySpinPage()
 
 def main():
     # TC14 -- TODO: Add description
+    # Test Flow:
+    # Step 1: find or reroll mission {target_task_type}
+    # Step 2: play mission until completable [{mission_name}]
+    # Step 3: Check Mission [{mission_name}] marked as complete & Verification
+    #
 
     try:
         log_info("Start: tc14_spend_coins")
@@ -88,7 +93,7 @@ def main():
         wrapper.log_error(f"TC14_error: {str(e)}")
         snapshot(filename="tc14_error.png")
     finally:
-        teardown_app()
+        teardown_app(__file__)
 
 
 if __name__ == "__main__":

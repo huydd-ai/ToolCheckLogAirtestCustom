@@ -22,6 +22,10 @@ lucky = LuckySpinPage()
 
 def main():
     # TC22 -- TODO: Add description
+    # Test Flow:
+    # Step 1: get active mission for kill app test
+    # Step 2: Check Mission progress increased for [{mission_name}]
+    #
 
     try:
         log_info("Start: tc22_kill_app")
@@ -81,7 +85,7 @@ def main():
         except Exception as e:
             log_info(f"Main thread mission stopped by kill app: {e}")
         t.join(timeout=5)
-        teardown_app()
+        teardown_app(__file__)
         run_step(
             "cold start app after kill mission",
             cold_start_with_combined,
@@ -119,7 +123,7 @@ def main():
         wrapper.log_error(f"TC22_error: {str(e)}")
         snapshot(filename="tc22_error.png")
     finally:
-        teardown_app()
+        teardown_app(__file__)
 
 
 if __name__ == "__main__":

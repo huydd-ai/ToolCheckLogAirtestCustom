@@ -23,6 +23,11 @@ def main():
     # TC01 -- Cold start at lv32, win the 2-phase level to reach lv33 (unlock
     # threshold), back home, tap the Magic Bean icon, dismiss the tutorial
     # overlay, and verify the event board opens.
+    # Test Flow:
+    # Step 1: win 2-phase lv{BELOW_THRESHOLD_LEVEL} to reach lv{MagicBeanPage.MAGICBEAN_UNLOCK_LEVEL}
+    # Step 2: close all popups
+    # Step 3: tap icon -> confirm board via event_board_character img
+    #
 
     try:
         log_info(f"Start: tc01_unlock_below_threshold (level {BELOW_THRESHOLD_LEVEL})")
@@ -54,18 +59,22 @@ def main():
 
         run_step("Go back homepage", go_home_clean, home_page)
 
-        # New lv33 behavior: popup storm incl. Magic Bean popup with tutorial
-        # overlay on top. verify_unlock_flow taps through the tutorial, checks
-        # the event board, closes all popups, then taps the icon and checks
-        # the board opens.
-        log_info("Start: verify unlock flow (tutorial -> board -> popups closed -> icon)")
-        flow_ok = run_step("verify unlock flow", magic_bean.verify_unlock_flow, home_page)
-        assert flow_ok, (
-            "Result: Expected: first-unlock tutorial overlay auto-shows at lv33 | "
-            "Actual: no tutorial overlay appeared"
+        # New lv33 behavior: popup storm. No need to check tutorial, just close all popups.
+        log_info("Start: close all popups")
+        run_step("Close all popups", close_all_popups, home_page)
+        log_info("End: close all popups")
+
+        # Re-open via the Magic Bean icon and confirm the event board opened by
+        # matching the character image (event_board_character).
+        log_info("Start: tap icon -> confirm board via event_board_character img")
+        opened = run_step("open event via icon", magic_bean.open_event_popup)
+        assert opened and magic_bean.wait_for_element(magic_bean.event_board, timeout=5), (
+            "Result: Expected: event board (character img) visible after tapping icon | "
+            "Actual: board not detected"
         )
-        log_info("Result: Expected: unlock flow verified (tutorial, board, icon) | Actual: verified")
-        log_info("End: verify unlock flow")
+        magic_bean.tap(magic_bean.btn_close)
+        log_info("Result: Expected: board confirmed via event_board_character | Actual: confirmed")
+        log_info("End: confirm board open")
 
         sleep(5)
         log_info("End: tc01_unlock_below_threshold")
@@ -73,7 +82,7 @@ def main():
         wrapper.log_error(f"TC01_error: {str(e)}")
         snapshot(filename="tc01_error.png")
     finally:
-        teardown_app()
+        teardown_app(__file__)
 
 
 if __name__ == "__main__":

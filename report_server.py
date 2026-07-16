@@ -584,6 +584,42 @@ def main():
     except Exception as e:
         print(f"[report_server] Failed to automatically open browser: {e}")
 
+    def sync_tests():
+        import stat
+        source = str(TEST_ROOT)
+        target = str(_project_root / "dagster" / "tests")
+        last_mtime = {}
+        print(f"[report_server] Auto-syncing tests from {source} to {target}...")
+        while True:
+            try:
+                for root, _, files in os.walk(source):
+                    for file in files:
+                        if file.endswith('.py'):
+                            src_path = os.path.join(root, file)
+                            mtime = os.stat(src_path).st_mtime
+                            
+                            if src_path not in last_mtime or last_mtime[src_path] < mtime:
+                                rel_path = os.path.relpath(src_path, source)
+                                dst_path = os.path.join(target, rel_path)
+                                
+                                os.makedirs(os.path.dirname(dst_path), exist_ok=True)
+                                
+                                if os.path.exists(dst_path):
+                                    os.chmod(dst_path, stat.S_IWRITE)
+                                    
+                                try:
+                                    shutil.copy2(src_path, dst_path)
+                                    print(f"[report_server] Synced updated test: {rel_path}")
+                                except shutil.SameFileError:
+                                    pass # Ignore if it's already a junction or symlink
+                                last_mtime[src_path] = mtime
+                time.sleep(2)
+            except Exception as e:
+                print(f"[report_server] Sync error: {e}")
+                time.sleep(5)
+
+    threading.Thread(target=sync_tests, daemon=True).start()
+
     try:
         server.serve_forever()
     except KeyboardInterrupt:

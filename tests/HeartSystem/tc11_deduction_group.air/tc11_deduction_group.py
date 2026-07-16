@@ -70,8 +70,8 @@ def variant_quit_to_home():
 def variant_restart_midgame():
     # TC20 — Restart mid-game -> 1 heart deducted
     log_info("Start: variant_restart_midgame")
-    run_step("Autoplay", warm_send_json, {"autoplay":True})
-    sleep(4)
+    # Wait long enough for the game's autosave to persist the heart deduction
+    sleep(15)
     stop_app("com.woodpuzzle.pin3d")
     sleep(2)
     run_step("cold start app", cold_start_with_json, {"fakeads": True, "playspeed": 6, "clear_data": False, "server_sync": False})
@@ -82,7 +82,8 @@ def variant_restart_midgame():
 def variant_background_close():
     # TC22 — Background then swipe-close -> 1 heart deducted
     log_info("Start: variant_background_close")
-    sleep(2)
+    # Wait long enough for the game's autosave to persist the heart deduction
+    sleep(15)
     run_step("press home key", run_adb_command, ["shell", "input", "keyevent", "KEYCODE_HOME"])
     sleep(2)
     run_step("force-stop app", run_adb_command, ["shell", "am", "force-stop", "com.woodpuzzle.pin3d"])
@@ -156,7 +157,7 @@ def main():
         wrapper.log_error(f"TC11_error: {str(e)}")
         snapshot(filename="tc11_error.png")
     finally:
-        teardown_app()
+        teardown_app(__file__)
 
 
 if __name__ == "__main__":

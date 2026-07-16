@@ -20,6 +20,9 @@ daily = DailyMissionPage()
 
 def main():
     # TC04 -- TODO: Add description
+    # Test Flow:
+    # Step 1: Check verify notify appears before joining
+    #
 
     try:
         log_info("Start: tc04_check_icon_notify")
@@ -55,7 +58,7 @@ def main():
         wrapper.log_error(f"TC04_error: {str(e)}")
         snapshot(filename="tc04_error.png")
     finally:
-        teardown_app()
+        teardown_app(__file__)
 
 
 if __name__ == "__main__":

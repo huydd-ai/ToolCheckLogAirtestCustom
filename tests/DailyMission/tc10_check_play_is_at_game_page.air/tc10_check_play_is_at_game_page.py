@@ -20,6 +20,9 @@ daily = DailyMissionPage()
 
 def main():
     # TC10 -- TODO: Add description
+    # Test Flow:
+    # Step 1: Check In game after tapping Play
+    #
 
     try:
         log_info("Start: tc10_play_main")
@@ -59,7 +62,7 @@ def main():
         wrapper.log_error(f"TC10_error: {str(e)}")
         snapshot(filename="tc10_error.png")
     finally:
-        teardown_app()
+        teardown_app(__file__)
 
 
 if __name__ == "__main__":

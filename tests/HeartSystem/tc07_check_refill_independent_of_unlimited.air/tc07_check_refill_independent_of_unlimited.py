@@ -11,7 +11,7 @@ from pixon.common.test_flow import (
     go_home_clean,
     close_all_popups,
 )
-from pixon.common.adb_utils import cold_start_with_combined, set_time_relative, set_combined, run_adb_command
+from pixon.common.adb_utils import cold_start_with_combined, set_time_relative, set_combined, run_adb_command, resume_app
 from pixon.common import config
 
 
@@ -76,11 +76,15 @@ def main():
         sleep(2)
         
         # 2. Advance clock by 1 hour so unlimited heart expires
-        run_step("advance clock by 1 hour", set_time_relative, 1.0)
+        ok = run_step("advance clock by 1 hour", set_time_relative, 1.0)
+        if not ok:
+            wrapper.log_error(
+                "set_time_relative failed — clock not advanced (check LDPlayer ROOT toggle)"
+            )
         sleep(5)
         
         # 3. Open app with package name (bring to foreground without intent)
-        run_step("bring app to foreground", run_adb_command, ["shell", "monkey", "-p", "com.woodpuzzle.pin3d", "-c", "android.intent.category.LAUNCHER", "1"])
+        run_step("bring app to foreground", resume_app)
         sleep(5)
         
         log_info("End: advance clock")
@@ -114,7 +118,7 @@ def main():
         wrapper.log_error(f"TC07_error: {str(e)}")
         snapshot(filename="tc07_error.png")
     finally:
-        teardown_app()
+        teardown_app(__file__)
 
 
 if __name__ == "__main__":

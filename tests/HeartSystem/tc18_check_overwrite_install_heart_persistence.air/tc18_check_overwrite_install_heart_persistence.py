@@ -8,6 +8,7 @@ from pixon.pages.heart_system_page import HeartSystemPage
 from pixon.common.test_flow import (
     run_step,
     teardown_app,
+    stop_app_only,
     go_home_clean,
     close_all_popups,
 )
@@ -47,7 +48,8 @@ def main():
         log_info("End: verify initial heart count")
 
         log_info("Start: stop and restart app to simulate overwrite persistence")
-        run_step("teardown app", teardown_app)
+        # stop only — mid-test teardown_app restores clock/network and emits a report
+        run_step("stop app", stop_app_only)
         run_step("cold start app", cold_start_with_json, {"fakeads": True, "playspeed": 6, "clear_data": True, "server_sync": False})
         sleep(30)
         run_step("close startup popups", close_all_popups, home_page)
@@ -69,7 +71,7 @@ def main():
         wrapper.log_error(f"TC18_error: {str(e)}")
         snapshot(filename="tc18_error.png")
     finally:
-        teardown_app()
+        teardown_app(__file__)
 
 
 if __name__ == "__main__":

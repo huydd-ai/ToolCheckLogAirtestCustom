@@ -20,6 +20,11 @@ daily = DailyMissionPage()
 
 def main():
     # TC01 -- TODO: Add description
+    # Test Flow:
+    # Step 1: Check Daily Mission icon appeared at level 10!
+    # Step 2: Check daily mission icon after level 11
+    # Step 3: Check Daily Mission icon appeared at level 11!
+    #
 
     try:
         log_info("Start: tc01_check_daily_mission_icon_before_and_after_unlock")
@@ -71,7 +76,7 @@ def main():
         wrapper.log_error(f"TC01_error: {str(e)}")
         snapshot(filename="tc01_error.png")
     finally:
-        teardown_app()
+        teardown_app(__file__)
 
 
 if __name__ == "__main__":

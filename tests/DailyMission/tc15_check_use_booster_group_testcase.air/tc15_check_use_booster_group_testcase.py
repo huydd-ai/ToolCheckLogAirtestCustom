@@ -62,6 +62,10 @@ def test_booster_group(item_names: list):
 
 def main():
     # TC15 -- TODO: Add description
+    # Test Flow:
+    # Step 1: play mission until completable [{mission_name}]
+    # Step 2: Check Mission [{mission_name}] marked as complete & Verification
+    #
 
     try:
         log_info("Start: tc15_use_booster_group")
@@ -101,7 +105,7 @@ def main():
         wrapper.log_error(f"TC15_error: {str(e)}")
         snapshot(filename="tc15_use_booster_group_error.png")
     finally:
-        teardown_app()
+        teardown_app(__file__)
 
 
 if __name__ == "__main__":

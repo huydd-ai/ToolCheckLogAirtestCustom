@@ -83,7 +83,7 @@ def main():
         wrapper.log_error(f"TC22_error: {str(e)}")
         snapshot(filename="tc22_error.png")
     finally:
-        teardown_app()
+        teardown_app(__file__)
 
 
 if __name__ == "__main__":

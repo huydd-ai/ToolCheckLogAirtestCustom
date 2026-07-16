@@ -91,7 +91,7 @@ def main():
         wrapper.log_error(f"TC09_error: {str(e)}")
     finally:
         enable_wifi()
-        teardown_app()
+        teardown_app(__file__)
 
 if __name__ == "__main__":
     main()

@@ -22,6 +22,10 @@ ads = RemoveAds()
 
 def main():
     # TC18 -- TODO: Add description
+    # Test Flow:
+    # Step 1: Check watch ads icon is visible
+    # Step 2: Check reward is correct
+    #
 
     try:
         log_info("Start: tc18_watch_ads")
@@ -64,7 +68,7 @@ def main():
         wrapper.log_error(f"TC18_error: {str(e)}")
         snapshot(filename="tc18_error.png")
     finally:
-        teardown_app()
+        teardown_app(__file__)
 
 
 if __name__ == "__main__":

@@ -110,7 +110,7 @@ def main():
 
         enable_wifi()
 
-        teardown_app()
+        teardown_app(__file__)
 
 
 

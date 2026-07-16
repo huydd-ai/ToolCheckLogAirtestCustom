@@ -24,6 +24,10 @@ lucky = LuckySpinPage()
 
 def main():
     # TC05 -- TODO: Add description
+    # Test Flow:
+    # Step 1: Check verify notify appears after mission completion
+    # Step 2: Check Notify disappears after claiming
+    #
 
     try:
         log_info("Start: tc05_notify_after_mission")
@@ -120,7 +124,7 @@ def main():
         wrapper.log_error(f"TC05_error: {str(e)}")
         snapshot(filename="tc05_error.png")
     finally:
-        teardown_app()
+        teardown_app(__file__)
 
 
 if __name__ == "__main__":

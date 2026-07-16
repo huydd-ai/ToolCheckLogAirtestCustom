@@ -20,6 +20,9 @@ daily = DailyMissionPage()
 
 def main():
     # TC09 -- TODO: Add description
+    # Test Flow:
+    # Step 1: Check All missions claimed
+    #
 
     try:
         log_info("Start: tc09_claim_all_missions")
@@ -85,7 +88,7 @@ def main():
         wrapper.log_error(f"TC09_error: {str(e)}")
         snapshot(filename="tc09_error.png")
     finally:
-        teardown_app()
+        teardown_app(__file__)
 
 
 if __name__ == "__main__":

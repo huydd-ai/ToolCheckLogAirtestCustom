@@ -26,11 +26,15 @@ def _refill_persists_after_interrupt(
     run_step(f"[{label}] run adb command", run_adb_command, adb_cmd)
 
     log_info(f"[{label}] Advance clock +1h")
-    run_step(f"[{label}] advance clock by 1 hours", set_time_relative, 1.0)
+    ok = run_step(f"[{label}] advance clock by 1 hours", set_time_relative, 1.0)
+    if not ok:
+        wrapper.log_error(
+            f"[{label}] set_time_relative failed — clock not advanced (check LDPlayer ROOT toggle)"
+        )
 
     if teardown:
-        log_info(f"[{label}] Teardown app")
-        teardown_app()
+        # No teardown_app here: it restores auto_time and would undo the clock
+        # advance before the app relaunches. Cold start force-stops on its own.
         run_step(
             f"[{label}] Cold start (clear_data=False, server_sync=False)",
             cold_start_with_combined,
@@ -65,7 +69,8 @@ def variant_kill_app():
 
     log_info("Navigate into game (click Play)")
     run_step("tap play button", home_page.click_play)
-    sleep(5)
+    # Wait long enough for the game's autosave to persist the heart state
+    sleep(15)
 
     count_after = _refill_persists_after_interrupt(
         ["shell", "am", "force-stop", "com.woodpuzzle.pin3d"], "kill", count_before
@@ -86,7 +91,8 @@ def variant_background():
 
     log_info("Navigate into game (click Play)")
     run_step("tap play button", home_page.click_play)
-    sleep(5)
+    # Wait long enough for the game's autosave to persist the heart state
+    sleep(15)
 
     count_after = _refill_persists_after_interrupt(
         ["shell", "input", "keyevent", "KEYCODE_HOME"], "background", count_before, teardown=False
@@ -258,7 +264,7 @@ def main():
         wrapper.log_error(f"TC06_error: {str(e)}")
         snapshot(filename="tc06_error.png")
     finally:
-        teardown_app()
+        teardown_app(__file__)
 
 
 if __name__ == "__main__":

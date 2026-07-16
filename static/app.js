@@ -57,6 +57,31 @@ document.addEventListener('alpine:init', () => {
             return groups;
         },
 
+        get benchmarks() {
+            let bMap = {};
+            this.runs.forEach(r => {
+                if (r.duration !== null && r.duration > 0 && (r.status === 'PASS' || r.status === 'FAIL')) {
+                    if (!bMap[r.stem]) bMap[r.stem] = [];
+                    bMap[r.stem].push(r.duration);
+                }
+            });
+            let list = [];
+            for (let stem in bMap) {
+                let durs = bMap[stem].sort((a,b) => a - b);
+                let sum = durs.reduce((a,b) => a+b, 0);
+                list.push({
+                    stem: stem,
+                    runs: durs.length,
+                    avg: (sum / durs.length).toFixed(2),
+                    median: durs[Math.floor(durs.length/2)].toFixed(2),
+                    min: durs[0].toFixed(2),
+                    max: durs[durs.length-1].toFixed(2),
+                    score: Math.max(0, 100 - Math.round(sum / durs.length)) // Simple formula: 100 - avg time
+                });
+            }
+            return list.sort((a,b) => a.stem.localeCompare(b.stem));
+        },
+
         async fetchData() {
             try {
                 this.loading = true;
