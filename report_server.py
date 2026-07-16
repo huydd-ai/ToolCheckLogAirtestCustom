@@ -201,7 +201,7 @@ class ReportHandler(SimpleHTTPRequestHandler):
                 # Clear logs and all files inside the folder
                 log_files = []
                 for item in target.iterdir():
-                    if item.is_file() and item.suffix in ('.txt', '.log') or item.name.startswith('log'):
+                    if item.is_file() and (item.suffix in ('.txt', '.log') or item.name.startswith('log')):
                         log_files.append(item.name)
                 shutil.rmtree(target)
                 regenerate_global_report(REPORT_ROOT)
