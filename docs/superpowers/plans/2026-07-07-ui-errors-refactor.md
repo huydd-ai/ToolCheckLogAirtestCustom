@@ -81,8 +81,8 @@ Replace those three `const` lines with:
             // line chart can draw a line (presentation-only; API returns real dates).
             let trend = this.metrics.trend;
             if (trend.length === 1) {
-                const d = new Date(trend[0].date + 'T00:00:00');
-                d.setDate(d.getDate() - 1);
+                const d = new Date(trend[0].date + 'T00:00:00Z');
+                d.setUTCDate(d.getUTCDate() - 1);
                 const prev = d.toISOString().slice(0, 10);
                 trend = [{ date: prev, total: 0, pass_rate: trend[0].pass_rate }, ...trend];
             }
