@@ -167,6 +167,15 @@ def _safe_under_root(folder_name: str) -> Path | None:
     return target if (target == root or root in target.parents) else None
 
 
+def parse_offset(query: dict) -> int | None:
+    """Parse a non-negative ?offset= value; None if malformed."""
+    try:
+        offset = int(query.get("offset", ["0"])[0])
+    except (ValueError, TypeError):
+        return None
+    return offset if offset >= 0 else None
+
+
 class ReportHandler(SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=str(REPORT_ROOT.resolve()), **kwargs)
@@ -523,10 +532,13 @@ class ReportHandler(SimpleHTTPRequestHandler):
         if job is None:
             self._json(404, {"error": "unknown job"})
             return
-        
+
         from urllib.parse import parse_qs
         query = parse_qs(self.path.split('?', 1)[1]) if '?' in self.path else {}
-        offset = int(query.get("offset", ["0"])[0])
+        offset = parse_offset(query)
+        if offset is None:
+            self._json(400, {"error": "bad offset"})
+            return
         
         log_path = job.get("log_path")
         if not log_path or not log_path.exists():

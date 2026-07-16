@@ -72,5 +72,12 @@ def test_second_bind_same_port_fails():
         s1.server_close()
 
 
+def test_parse_offset_valid_invalid():
+    assert rs.parse_offset({"offset": ["42"]}) == 42
+    assert rs.parse_offset({}) == 0
+    assert rs.parse_offset({"offset": ["abc"]}) is None
+    assert rs.parse_offset({"offset": ["-5"]}) is None
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
