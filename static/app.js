@@ -307,7 +307,7 @@ document.addEventListener('alpine:init', () => {
                         const data = await res.json();
                         if (data.status !== 'running') {
                             clearInterval(interval);
-                            this.jobs[key] = { status: data.status === 'done' ? 'completed' : 'failed' };
+                            this.jobs[key] = { status: data.status === 'done' ? 'completed' : 'failed', job_id: jobId };
                             if (standalone) await this.stopEmulator(); // close on any terminal state
                             this.etag = ''; // force reload on next fetch
                             this.fetchData();
@@ -315,7 +315,7 @@ document.addEventListener('alpine:init', () => {
                         }
                     } catch(e) {
                         clearInterval(interval);
-                        this.jobs[key] = { status: 'poll error' };
+                        this.jobs[key] = { status: 'poll error', job_id: jobId };
                         resolve('error');
                     }
                 }, 2000);
