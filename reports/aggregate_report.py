@@ -3,10 +3,8 @@
 from __future__ import annotations
 
 import os
-import re
 import uuid
-from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date
 from html import escape
 from pathlib import Path
 
@@ -21,10 +19,10 @@ def _js_arg(s: str) -> str:
 
 try:
     from dagster.reports.report_theme import THEME_CSS
-    from dagster.reports.report_data import RunEntry, scan_runs, scan_catalog, parse_run_folder_name
+    from dagster.reports.report_data import RunEntry, scan_runs, scan_catalog
 except ModuleNotFoundError:
     from report_theme import THEME_CSS
-    from report_data import RunEntry, scan_runs, scan_catalog, parse_run_folder_name
+    from report_data import RunEntry, scan_runs, scan_catalog
 
 def build_catalog(
     test_root: Path, entries: list[RunEntry]
@@ -36,16 +34,27 @@ def build_catalog(
         key = (e.suite, e.stem)
         if key not in newest or e.when > newest[key].when:
             newest[key] = e
+    # Calculate average runtimes for each test
+    from statistics import mean
+    avg_durations = {}
+    for e in entries:
+        if e.duration is not None and e.duration > 0 and e.status in ("PASS", "FAIL"):
+            key = (e.suite, e.stem)
+            avg_durations.setdefault(key, []).append(e.duration)
+            
     out: list[tuple[str, list[dict]]] = []
     for suite, stems in scan_catalog(test_root).items():
         tests = []
         for stem in stems:
             run = newest.get((suite, stem))
+            key = (suite, stem)
+            avg_duration = mean(avg_durations[key]) if key in avg_durations else None
             tests.append({
                 "stem": stem,
                 "air_path": f"{test_root.name}/{suite}/{stem}.air",
                 "last_status": run.status if run else None,
                 "last_href": run.report_href if run else None,
+                "avg_duration": avg_duration,
             })
         out.append((suite, tests))
     return out
@@ -668,6 +677,8 @@ def _append_date_group(html: list[str], date_str: str, rows: list[RunEntry], tod
         html.append(f'<a class="run-name" href="{href}" onclick="openReport(event, \'{href_js}\', \'{stem_js}\')">{stem}</a>')
         html.append('</div>')
         html.append('<div class="run-meta">')
+        if r.duration is not None:
+            html.append(f'<span class="run-time" title="Duration">⏱ {r.duration:.1f}s</span>')
         html.append(f'<span class="dev-tag" title="Device">&#128241; {escape(r.device)}</span>')
         html.append(f'<span class="run-time">{time_str}</span>')
         html.append(f'<button class="rerun-btn" data-folder="{folder}" onclick="rerunTest(this, \'{folder_js}\')" title="Rerun this test">↺ Rerun</button>')
@@ -690,7 +701,7 @@ def _append_catalog(html: list[str], catalog: list[tuple[str, list[dict]]]) -> N
     idx = 0
     for suite, tests in catalog:
         html.append('<details open class="suite-group">')
-        html.append(f'<summary class="suite-summary" style="display: flex; align-items: center;">')
+        html.append('<summary class="suite-summary" style="display: flex; align-items: center;">')
         html.append(f'<span style="flex: 1;"><span>{escape(suite)}</span> &mdash; {len(tests)} tests</span>')
         html.append(f'<button class="rerun-btn run-all-btn" onclick="runAllTests(this)" title="Run all tests in {escape(suite)}" style="margin-right: 16px;">▶ Run All</button>')
         html.append('</summary>')
@@ -699,7 +710,6 @@ def _append_catalog(html: list[str], catalog: list[tuple[str, list[dict]]]) -> N
             key = f"cat{idx}"
             idx += 1
             stem = escape(t["stem"])
-            air = escape(t["air_path"], quote=True)
             stem_js = _js_arg(t["stem"])
             air_js = _js_arg(t["air_path"])
             status = t["last_status"]
@@ -716,6 +726,9 @@ def _append_catalog(html: list[str], catalog: list[tuple[str, list[dict]]]) -> N
                 html.append(f'<span class="run-name">{stem}</span>')
             html.append('</div>')
             html.append('<div class="run-meta">')
+            avg_t = t.get("avg_duration")
+            if avg_t is not None:
+                html.append(f'<span class="run-time" title="Average Duration">Avg: {avg_t:.1f}s</span>')
             html.append(f'<button class="rerun-btn" onclick="runCatalogTest(this, \'{key}\', \'{air_js}\')" title="Run this test">▶ Run</button>')
             html.append(f'<button class="terminate-btn" id="cat-term-{key}" data-folder="{key}" onclick="terminateTest(this, \'{key}\')" style="display:none">⏹ Terminate</button>')
             html.append(f'<button class="logs-btn" onclick="toggleLogs(\'{key}\')" title="Toggle CLI Logs">📄 Logs</button>')
@@ -726,9 +739,50 @@ def _append_catalog(html: list[str], catalog: list[tuple[str, list[dict]]]) -> N
         html.append('</ul></div></details>')
 
 
+def _append_benchmarks(html: list[str], benchmarks: list[dict]) -> None:
+    if not benchmarks:
+        html.append('<p class="empty-state">No benchmark data available (need completed runs with durations).</p>')
+        return
+        
+    html.append('<div class="group-content" style="padding-top: 16px; overflow-x: auto;">')
+    # Excel-like table styling
+    html.append('<table style="width:100%; border-collapse: collapse; font-family: sans-serif; font-size: 13px; background: var(--bg-card); border: 1px solid var(--border); box-shadow: 0 4px 6px rgba(0,0,0,0.1);">')
+    
+    # Headers
+    html.append('<thead style="position: sticky; top: 0; background: var(--bg-item); z-index: 10;">')
+    html.append('<tr>')
+    th_style = "padding: 8px 12px; font-weight: 600; text-align: left; border: 1px solid var(--border); border-bottom: 2px solid var(--border); white-space: nowrap;"
+    html.append(f'<th style="{th_style}">Test Case</th>')
+    html.append(f'<th style="{th_style}">Runs</th>')
+    html.append(f'<th style="{th_style}">Avg (s)</th>')
+    html.append(f'<th style="{th_style}">Median (s)</th>')
+    html.append(f'<th style="{th_style}">Min (s)</th>')
+    html.append(f'<th style="{th_style}">Max (s)</th>')
+    html.append('</tr></thead><tbody>')
+    
+    # Data rows
+    for i, b in enumerate(benchmarks):
+        bg_color = "transparent" if i % 2 == 0 else "var(--bg-item)"
+        html.append(f'<tr style="background: {bg_color}; transition: background 0.15s;" onmouseover="this.style.filter=\'brightness(1.5)\'" onmouseout="this.style.filter=\'none\'">')
+        
+        td_style = "padding: 8px 12px; border: 1px solid var(--border); white-space: nowrap;"
+        td_num_style = td_style + " font-family: monospace; text-align: right;"
+        
+        html.append(f'<td style="{td_style} font-weight: 500;">{escape(b["stem"])}</td>')
+        html.append(f'<td style="{td_num_style} color: var(--text-dim);">{b["runs"]}</td>')
+        html.append(f'<td style="{td_num_style}">{b["avg"]:.2f}</td>')
+        html.append(f'<td style="{td_num_style} color: var(--text-dim);">{b["median"]:.2f}</td>')
+        html.append(f'<td style="{td_num_style} color: var(--text-dim);">{b["min"]:.2f}</td>')
+        html.append(f'<td style="{td_num_style} color: var(--text-dim);">{b["max"]:.2f}</td>')
+        html.append('</tr>')
+        
+    html.append('</tbody></table></div>')
+
+
 def render_html(
     suite_groups: list[tuple[str, list[tuple[str, list[RunEntry]]]]],
     catalog: list[tuple[str, list[dict]]] | None = None,
+    benchmarks: list[dict] | None = None,
 ) -> str:
     today_str = date.today().strftime("%Y-%m-%d")
     html = [
@@ -747,6 +801,7 @@ def render_html(
         '<div class="tabs">',
         '<button class="tab-btn active" data-tab="report" onclick="showTab(\'report\')">Report</button>',
         '<button class="tab-btn" data-tab="catalog" onclick="showTab(\'catalog\')">Test Catalog</button>',
+        '<button class="tab-btn" data-tab="benchmark" onclick="showTab(\'benchmark\')">Benchmark</button>',
         '</div>',
         '<div id="tab-report" class="tab-pane active">',
     ]
@@ -803,6 +858,10 @@ def render_html(
     html.append('<div id="tab-catalog" class="tab-pane">')
     _append_catalog(html, catalog or [])
     html.append('</div>')  # end tab-catalog
+    
+    html.append('<div id="tab-benchmark" class="tab-pane">')
+    _append_benchmarks(html, benchmarks or [])
+    html.append('</div>')  # end tab-benchmark
 
     html.append('</div>') # end container
 
@@ -822,7 +881,27 @@ def regenerate_global_report(report_root: Path, test_root: Path | None = None) -
     entries = scan_runs(report_root)
     suite_groups = group_by_suite_then_date(entries)
     catalog = build_catalog(test_root, entries)
-    html = render_html(suite_groups, catalog=catalog)
+    
+    # Calculate benchmarks
+    benchmark_map = {}
+    for r in entries:
+        if r.duration is not None and r.duration > 0 and r.status in ("PASS", "FAIL"):
+            benchmark_map.setdefault(r.stem, []).append(r.duration)
+            
+    benchmarks = []
+    for stem, durs in benchmark_map.items():
+        durs_sorted = sorted(durs)
+        benchmarks.append({
+            "stem": stem,
+            "runs": len(durs),
+            "avg": sum(durs) / len(durs),
+            "median": durs_sorted[len(durs)//2],
+            "min": durs_sorted[0],
+            "max": durs_sorted[-1]
+        })
+    benchmarks.sort(key=lambda x: x["stem"])
+
+    html = render_html(suite_groups, catalog=catalog, benchmarks=benchmarks)
     out = report_root / "report.html"
     # Atomic write: unique temp + os.replace so concurrent regens (page load +
     # auto-refresh polls under ThreadingHTTPServer) never serve a torn file.

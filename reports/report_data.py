@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-import os
 import re
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
@@ -146,6 +145,7 @@ def scan_runs(report_root: Path) -> list[RunEntry]:
                 error_summary=error_summary,
             )
         )
+    entries.sort(key=lambda x: x.when, reverse=True)
     return entries
 
 
@@ -175,18 +175,7 @@ def compute_metrics(runs: list[RunEntry]) -> dict:
         d_pass = by_date[d_str]["pass"]
         d_rate = round((d_pass / d_tot) * 100) if d_tot > 0 else 0
         trend.append({"date": d_str, "total": d_tot, "pass_rate": d_rate})
-        
-    # If there's only 1 point, add a dummy previous day so the line chart can draw a line
-    if len(trend) == 1:
-        from datetime import datetime, timedelta
-        dt = datetime.strptime(trend[0]["date"], "%Y-%m-%d")
-        prev_dt = dt - timedelta(days=1)
-        trend.insert(0, {
-            "date": prev_dt.strftime("%Y-%m-%d"),
-            "total": 0,
-            "pass_rate": trend[0]["pass_rate"]
-        })
-        
+
     # Flaky: tests flipping status across most recent 10 runs
     by_stem = {}
     for r in runs:

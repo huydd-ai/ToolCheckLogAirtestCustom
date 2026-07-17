@@ -1,7 +1,7 @@
 """Simple HTTP server for the aggregate test report.
 
 Serves static files from REPORT_ROOT and handles POST actions
-(delete, delete-date, rerun, rerun-terminate, run).
+(delete, delete-date, rerun, rerun-terminate, terminate-all, run).
 
 Usage:
     python report_server.py [--port PORT] [--root REPORT_ROOT]
@@ -30,7 +30,7 @@ sys.path.insert(0, str(_project_root))
 PROJECT_ROOT = _project_root
 TEST_ROOT = (_project_root / "Test").resolve()
 
-from dagster.reports.aggregate_report import parse_run_folder_name, regenerate_global_report
+from dagster.reports.aggregate_report import regenerate_global_report  # noqa: E402 — import must follow sys.path.insert above
 
 
 def extract_air_path(log_path: Path) -> str | None:
@@ -126,6 +126,36 @@ def _prune_jobs() -> None:
         _jobs.pop(job["job_id"], None)
 
 
+def _terminate_job(job: dict) -> None:
+    """Terminate a running job's process, force-stop the game app, mark the
+    job failed and close its log handle. No-op if the job already finished."""
+    if job["status"] != "running":
+        return
+    try:
+        job["proc"].terminate()
+    except OSError:
+        pass
+    try:
+        try:
+            from dotenv import load_dotenv
+            # Load .env from dagster/ directory
+            load_dotenv(dotenv_path=Path(__file__).parent / ".env")
+        except ImportError:
+            pass
+        pkg = os.environ.get("GAME_PACKAGE", "com.woodpuzzle.pin3d")
+        subprocess.run(["adb", "shell", "am", "force-stop", pkg], check=False)
+    except Exception:
+        pass
+    with _jobs_lock:
+        if job["status"] != "running":  # reaped as done while we were terminating
+            return
+        job["status"] = "failed"
+        job["exit_code"] = job["proc"].poll()
+        lf = job.get("log_file")
+        if lf and not lf.closed:
+            lf.close()
+
+
 REPORT_ROOT = Path(__file__).parent / "report_run"
 
 
@@ -135,6 +165,15 @@ def _safe_under_root(folder_name: str) -> Path | None:
     root = REPORT_ROOT.resolve()
     target = (root / folder_name).resolve()
     return target if (target == root or root in target.parents) else None
+
+
+def parse_offset(query: dict) -> int | None:
+    """Parse a non-negative ?offset= value; None if malformed."""
+    try:
+        offset = int(query.get("offset", ["0"])[0])
+    except (ValueError, TypeError, IndexError):
+        return None
+    return offset if offset >= 0 else None
 
 
 class ReportHandler(SimpleHTTPRequestHandler):
@@ -171,7 +210,7 @@ class ReportHandler(SimpleHTTPRequestHandler):
                 # Clear logs and all files inside the folder
                 log_files = []
                 for item in target.iterdir():
-                    if item.is_file() and item.suffix in ('.txt', '.log') or item.name.startswith('log'):
+                    if item.is_file() and (item.suffix in ('.txt', '.log') or item.name.startswith('log')):
                         log_files.append(item.name)
                 shutil.rmtree(target)
                 regenerate_global_report(REPORT_ROOT)
@@ -222,6 +261,9 @@ class ReportHandler(SimpleHTTPRequestHandler):
             job_id = self.path.removeprefix("/rerun-terminate/")
             self._handle_rerun_terminate(job_id)
             return
+        if self.path == "/terminate-all":
+            self._handle_terminate_all()
+            return
         if self.path == "/run":
             self._handle_run()
             return
@@ -263,6 +305,37 @@ class ReportHandler(SimpleHTTPRequestHandler):
         ldplayer_ctl.quit()
         self._json(200, {"status": "stopped"})
 
+    def _spawn_job(self, suite: str, stem: str, air_arg: str) -> None:
+        """Launch dagster_run.py for one .air test and register the job.
+        Sends the JSON response itself. Caller must NOT hold _jobs_lock."""
+        with _jobs_lock:
+            if _find_running_job(suite, stem) is not None:
+                self._json(409, {"error": "already running"})
+                return
+            job_id = str(uuid.uuid4())
+            log_path = REPORT_ROOT / f"{job_id}.log"
+            log_file = log_path.open("w", encoding="utf-8")
+            dagster_run = Path(__file__).parent / "dagster_run.py"
+            env = os.environ.copy()
+            env["PYTHONIOENCODING"] = "utf-8"
+            try:
+                proc = subprocess.Popen(
+                    [sys.executable, "-u", str(dagster_run), air_arg],
+                    stdout=log_file, stderr=subprocess.STDOUT, env=env,
+                )
+            except FileNotFoundError:
+                log_file.close()
+                self._json(500, {"error": "dagster_run.py not found"})
+                return
+            _jobs[job_id] = {
+                "job_id": job_id, "suite": suite, "stem": stem,
+                "air_path": air_arg, "proc": proc, "status": "running",
+                "new_folder": None, "exit_code": None, "started": time.time(),
+                "log_file": log_file, "log_path": log_path,
+            }
+            _prune_jobs()
+        self._json(200, {"job_id": job_id})
+
     def _handle_run(self) -> None:
         try:
             length = int(self.headers.get("Content-Length", "0") or "0")
@@ -280,33 +353,7 @@ class ReportHandler(SimpleHTTPRequestHandler):
             return
         suite = p.parent.name or "unknown"
         stem = p.stem
-        with _jobs_lock:
-            if _find_running_job(suite, stem) is not None:
-                self._json(409, {"error": "already running"})
-                return
-            job_id = str(uuid.uuid4())
-            log_path = REPORT_ROOT / f"{job_id}.log"
-            log_file = log_path.open("w", encoding="utf-8")
-            dagster_run = Path(__file__).parent / "dagster_run.py"
-            env = os.environ.copy()
-            env["PYTHONIOENCODING"] = "utf-8"
-            try:
-                proc = subprocess.Popen(
-                    [sys.executable, "-u", str(dagster_run), str(p)],
-                    stdout=log_file, stderr=subprocess.STDOUT, env=env,
-                )
-            except FileNotFoundError:
-                log_file.close()
-                self._json(500, {"error": "dagster_run.py not found"})
-                return
-            _jobs[job_id] = {
-                "job_id": job_id, "suite": suite, "stem": stem,
-                "air_path": str(p), "proc": proc, "status": "running",
-                "new_folder": None, "exit_code": None, "started": time.time(),
-                "log_file": log_file, "log_path": log_path,
-            }
-            _prune_jobs()
-        self._json(200, {"job_id": job_id})
+        self._spawn_job(suite, stem, str(p))
 
     def _handle_rerun_terminate(self, job_id: str) -> None:
         with _jobs_lock:
@@ -314,29 +361,15 @@ class ReportHandler(SimpleHTTPRequestHandler):
         if job is None:
             self._json(404, {"error": "unknown job"})
             return
-        if job["status"] == "running":
-            try:
-                job["proc"].terminate()
-            except OSError:
-                pass
-            try:
-                try:
-                    from dotenv import load_dotenv
-                    # Load .env from dagster/ directory
-                    load_dotenv(dotenv_path=Path(__file__).parent / ".env")
-                except ImportError:
-                    pass
-                pkg = os.environ.get("GAME_PACKAGE", "com.woodpuzzle.pin3d")
-                subprocess.run(["adb", "shell", "am", "force-stop", pkg], check=False)
-            except Exception:
-                pass
-            with _jobs_lock:
-                job["status"] = "failed"
-                job["exit_code"] = job["proc"].poll()
-                lf = job.get("log_file")
-                if lf and not lf.closed:
-                    lf.close()
+        _terminate_job(job)
         self._json(200, {"status": "terminated"})
+
+    def _handle_terminate_all(self) -> None:
+        with _jobs_lock:
+            running = [j for j in _jobs.values() if j["status"] == "running"]
+        for job in running:
+            _terminate_job(job)
+        self._json(200, {"terminated": [j["job_id"] for j in running]})
 
     def _handle_rerun(self, folder_name: str) -> None:
         target = _safe_under_root(folder_name)
@@ -358,45 +391,7 @@ class ReportHandler(SimpleHTTPRequestHandler):
             return
         stem = m.group(1)
         suite = Path(air_path).parent.name or "unknown"
-        with _jobs_lock:
-            if _find_running_job(suite, stem) is not None:
-                self._json(409, {"error": "already running"})
-                return
-            job_id = str(uuid.uuid4())
-            log_path = REPORT_ROOT / f"{job_id}.log"
-            # Keep file open for the lifetime of the process
-            log_file = log_path.open("w", encoding="utf-8")
-            
-            dagster_run = Path(__file__).parent / "dagster_run.py"
-            env = os.environ.copy()
-            env["PYTHONIOENCODING"] = "utf-8"
-            try:
-                proc = subprocess.Popen(
-                    [sys.executable, "-u", str(dagster_run), air_path],
-                    stdout=log_file,
-                    stderr=subprocess.STDOUT,
-                    env=env
-                )
-            except FileNotFoundError:
-                log_file.close()
-                self._json(500, {"error": "dagster_run.py not found"})
-                return
-            
-            _jobs[job_id] = {
-                "job_id": job_id,
-                "stem": stem,
-                "suite": suite,
-                "air_path": air_path,
-                "proc": proc,
-                "status": "running",
-                "new_folder": None,
-                "exit_code": None,
-                "started": time.time(),
-                "log_file": log_file,
-                "log_path": log_path,
-            }
-            _prune_jobs()
-        self._json(200, {"job_id": job_id})
+        self._spawn_job(suite, stem, air_path)
 
     def _handle_rerun_status(self, job_id: str) -> None:
         with _jobs_lock:
@@ -466,6 +461,12 @@ class ReportHandler(SimpleHTTPRequestHandler):
     def do_GET(self):
         # Strip query/fragment before route matching (same as translate_path)
         clean = self.path.split("?", 1)[0].split("#", 1)[0]
+        
+        if clean == "/favicon.ico":
+            self.send_response(204)
+            self.end_headers()
+            return
+
         if clean.startswith("/rerun-status/"):
             job_id = clean.removeprefix("/rerun-status/")
             self._handle_rerun_status(job_id)
@@ -498,10 +499,13 @@ class ReportHandler(SimpleHTTPRequestHandler):
         if job is None:
             self._json(404, {"error": "unknown job"})
             return
-        
+
         from urllib.parse import parse_qs
         query = parse_qs(self.path.split('?', 1)[1]) if '?' in self.path else {}
-        offset = int(query.get("offset", ["0"])[0])
+        offset = parse_offset(query)
+        if offset is None:
+            self._json(400, {"error": "bad offset"})
+            return
         
         log_path = job.get("log_path")
         if not log_path or not log_path.exists():
@@ -528,6 +532,12 @@ class ReportHandler(SimpleHTTPRequestHandler):
         self.wfile.write(body)
 
 
+class ReportServer(ThreadingHTTPServer):
+    # Two instances silently double-bind one port on Windows with SO_REUSEADDR;
+    # fail fast with "address already in use" instead.
+    allow_reuse_address = False
+
+
 def main():
     global REPORT_ROOT
     parser = argparse.ArgumentParser(description="Dagster test report server")
@@ -548,10 +558,53 @@ def main():
     except Exception as e:
         print(f"[report_server] Failed to regenerate report: {e}")
 
-    server = ThreadingHTTPServer((args.host, args.port), ReportHandler)
+    server = ReportServer((args.host, args.port), ReportHandler)
     print(f"[report_server] Serving {REPORT_ROOT} at http://localhost:{args.port}/ (bind {args.host})")
     print(f"[report_server] DELETE endpoint: http://localhost:{args.port}/delete/<folder>")
     print(f"[report_server] DELETE-DATE endpoint: http://localhost:{args.port}/delete-date/<YYYY-MM-DD>")
+    
+    import webbrowser
+    try:
+        webbrowser.open(f"http://127.0.0.1:{args.port}/")
+    except Exception as e:
+        print(f"[report_server] Failed to automatically open browser: {e}")
+
+    def sync_tests():
+        import stat
+        source = str(TEST_ROOT)
+        target = str(_dagster_dir / "tests_mirror")
+        last_mtime = {}
+        print(f"[report_server] Auto-syncing tests from {source} to {target}...")
+        while True:
+            try:
+                for root, _, files in os.walk(source):
+                    for file in files:
+                        if file.endswith('.py'):
+                            src_path = os.path.join(root, file)
+                            mtime = os.stat(src_path).st_mtime
+                            
+                            if src_path not in last_mtime or last_mtime[src_path] < mtime:
+                                rel_path = os.path.relpath(src_path, source)
+                                dst_path = os.path.join(target, rel_path)
+                                
+                                os.makedirs(os.path.dirname(dst_path), exist_ok=True)
+                                
+                                if os.path.exists(dst_path):
+                                    os.chmod(dst_path, stat.S_IWRITE)
+                                    
+                                try:
+                                    shutil.copy2(src_path, dst_path)
+                                    print(f"[report_server] Synced updated test: {rel_path}")
+                                except shutil.SameFileError:
+                                    pass # Ignore if it's already a junction or symlink
+                                last_mtime[src_path] = mtime
+                time.sleep(2)
+            except Exception as e:
+                print(f"[report_server] Sync error: {e}")
+                time.sleep(5)
+
+    threading.Thread(target=sync_tests, daemon=True).start()
+
     try:
         server.serve_forever()
     except KeyboardInterrupt:

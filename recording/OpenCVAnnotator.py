@@ -20,35 +20,17 @@ OUTPUT_FPS = 10
 
 
 class OpenCVAnnotator:
-    _instance = None
-
-    def __new__(cls):
-        if cls._instance is None:
-            cls._instance = super().__new__(cls)
-            cls._instance._reset()
-        return cls._instance
-
-    def _reset(self, test_name: str = ""):
+    def __init__(self, test_name: str = ""):
         self.frames: list = []
         self.test_name = test_name
         self.total_steps = 0
         self.fail_count = 0
-
-    @classmethod
-    def reset(cls, test_name: str = ""):
-        inst = cls()
-        inst._reset(test_name)
 
     def add_step(self, name: str, action: str, screenshot_path: str | None, status: str, timestamp: str):
         if not HAS_CV2 or not screenshot_path:
             return
         try:
             path_obj = Path(screenshot_path)
-            if not path_obj.is_absolute():
-                from airtest.core.settings import Settings as ST
-                if ST.LOG_DIR:
-                    path_obj = Path(ST.LOG_DIR) / screenshot_path
-            
             img = cv2.imread(str(path_obj))
             if img is None:
                 return
@@ -90,14 +72,14 @@ class OpenCVAnnotator:
         try:
             h, w = self.frames[0].shape[:2]
             writer = None
-            fourcc = cv2.VideoWriter_fourcc(*'avc1')
+            fourcc = cv2.VideoWriter.fourcc(*'avc1')
             candidate = cv2.VideoWriter(str(output_path), cv2.CAP_MSMF, fourcc, float(OUTPUT_FPS), (w, h))
             if candidate.isOpened():
                 writer = candidate
             else:
                 candidate.release()
                 for codec in ['mp4v', 'X264']:
-                    fourcc = cv2.VideoWriter_fourcc(*codec)
+                    fourcc = cv2.VideoWriter.fourcc(*codec)
                     candidate = cv2.VideoWriter(str(output_path), fourcc, float(OUTPUT_FPS), (w, h))
                     if candidate.isOpened():
                         writer = candidate

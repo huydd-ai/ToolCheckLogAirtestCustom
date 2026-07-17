@@ -8,12 +8,13 @@ class OpenCVRecorder:
         self.output = Path(output)
         self.fps = fps
         self.scale = kwargs.get("scale", 1.0)
-        self._thread = None
+        self._capture_thread = None
+        self._write_thread = None
         self._stop_event = threading.Event()
         self._writer = None
 
     def start(self):
-        if getattr(self, '_capture_thread', None) and self._capture_thread.is_alive():
+        if self._capture_thread and self._capture_thread.is_alive():
             raise RuntimeError("OpenCV recording already started")
             
         self._stop_event.clear()
@@ -55,14 +56,14 @@ class OpenCVRecorder:
                     if self.scale != 1.0:
                         h, w = int(h * self.scale), int(w * self.scale)
                     # Try MSMF avc1 first for browser compatibility on Windows
-                    fourcc = cv2.VideoWriter_fourcc(*'avc1')
+                    fourcc = cv2.VideoWriter.fourcc(*'avc1')
                     candidate = cv2.VideoWriter(str(self.output), cv2.CAP_MSMF, fourcc, float(self.fps), (w, h))
                     if candidate.isOpened():
                         self._writer = candidate
                     else:
                         candidate.release()
                         for codec in ['mp4v', 'X264']:
-                            fourcc = cv2.VideoWriter_fourcc(*codec)
+                            fourcc = cv2.VideoWriter.fourcc(*codec)
                             candidate = cv2.VideoWriter(str(self.output), fourcc, float(self.fps), (w, h))
                             if candidate.isOpened():
                                 self._writer = candidate
@@ -105,9 +106,9 @@ class OpenCVRecorder:
 
     def stop(self, timeout: float = 5.0):
         self._stop_event.set()
-        if getattr(self, '_capture_thread', None) and self._capture_thread.is_alive():
+        if self._capture_thread and self._capture_thread.is_alive():
             self._capture_thread.join(timeout=timeout/2)
-        if getattr(self, '_write_thread', None) and self._write_thread.is_alive():
+        if self._write_thread and self._write_thread.is_alive():
             self._write_thread.join(timeout=timeout/2)
         if self._writer:
             self._writer.release()

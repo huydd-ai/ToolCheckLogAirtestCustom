@@ -10,14 +10,19 @@
 </head>
 <body x-data="dashboard()">
   <div class="container" x-cloak>
-    <h1>Dagster Test Dashboard 
+    <h1>Dagster Test Dashboard
       <span x-show="loading" style="font-size: 14px; font-weight: normal; color: var(--text-dim);">updating...</span>
       <span x-show="!online" style="font-size: 14px; font-weight: normal; color: var(--fail);">offline</span>
+      <span x-show="lastUpdated" style="font-size: 12px; font-weight: normal; color: var(--text-dim); margin-left: auto;" x-text="lastUpdated ? 'updated ' + lastUpdated.toLocaleTimeString() : ''"></span>
     </h1>
+
+    <div class="api-error-banner" x-show="apiError" x-text="apiError"></div>
 
     <div class="tabs">
       <button class="tab-btn" :class="{'active': tab === 'report'}" @click="tab = 'report'">Report</button>
       <button class="tab-btn" :class="{'active': tab === 'catalog'}" @click="tab = 'catalog'">Test Catalog</button>
+      <button class="tab-btn" :class="{'active': tab === 'benchmark'}" @click="tab = 'benchmark'">Benchmark</button>
+      <button class="tab-btn terminate-btn" style="margin-left: auto;" x-show="anyRunning" @click="cancelAllTests()">⏹ Cancel All Running</button>
     </div>
 
     <div x-show="tab === 'report'">
@@ -83,13 +88,15 @@
                     <span class="run-time" x-text="new Date(r.when).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', second:'2-digit'})"></span>
                     <span class="run-duration" x-show="r.duration !== null" x-text="r.duration ? Math.round(r.duration) + 's' : ''"></span>
                     
-                    <span x-show="jobs[r.folder]?.status" style="font-size: 11px; color: var(--text-dim);" x-text="jobs[r.folder].status"></span>
+                    <span x-show="jobs[r.folder]?.status" style="font-size: 11px; color: var(--text-dim);" x-text="jobs[r.folder]?.status"></span>
                     <button class="action-btn rerun-btn" @click="rerunTest(r.folder)" :disabled="jobs[r.folder]?.status === 'running'">↺ Rerun</button>
                     <button class="action-btn terminate-btn" x-show="jobs[r.folder]?.status === 'running'" @click="terminateTest(jobs[r.folder].job_id, r.folder)">⏹ Terminate</button>
+                    <button class="action-btn" x-show="jobs[r.folder]?.job_id" @click="toggleLogs(r.folder)" x-text="logView.key === r.folder ? 'Hide Logs' : 'Logs'"></button>
                     <button class="delete-btn" title="Delete Report" @click="deleteRun(r.folder)">
                       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path></svg>
                     </button>
                   </div>
+                  <pre class="job-log" x-show="logView.key === r.folder" x-text="logView.text || '(waiting for output…)'"></pre>
                 </li>
               </template>
             </ul>
@@ -119,16 +126,47 @@
                     <span class="run-name" x-text="t"></span>
                   </div>
                   <div class="run-meta">
-                    <span x-show="jobs[t]?.status" style="font-size: 11px; color: var(--text-dim);" x-text="jobs[t].status"></span>
+                    <span x-show="jobs[t]?.status" style="font-size: 11px; color: var(--text-dim);" x-text="jobs[t]?.status"></span>
                     <button class="action-btn rerun-btn" @click="runCatalogTest(suite, t)" :disabled="jobs[t]?.status === 'running'">▶ Run</button>
                     <button class="action-btn terminate-btn" x-show="jobs[t]?.status === 'running'" @click="terminateTest(jobs[t].job_id, t)">⏹ Terminate</button>
+                    <button class="action-btn" x-show="jobs[t]?.job_id" @click="toggleLogs(t)" x-text="logView.key === t ? 'Hide Logs' : 'Logs'"></button>
                   </div>
+                  <pre class="job-log" x-show="logView.key === t" x-text="logView.text || '(waiting for output…)'"></pre>
                 </li>
               </template>
             </ul>
           </div>
         </details>
       </template>
+    </div>
+
+    <div x-show="tab === 'benchmark'">
+      <div class="group-content" style="padding-top: 16px; overflow-x: auto;">
+        <table class="bench-table">
+          <thead>
+            <tr>
+              <th>Test Case</th><th>Runs</th><th>Avg (s)</th><th>Median (s)</th>
+              <th>Min (s)</th><th>Max (s)</th><th style="text-align:center;">Score (Max 100)</th>
+            </tr>
+          </thead>
+          <tbody>
+            <template x-for="b in benchmarks" :key="b.stem">
+              <tr>
+                <td style="font-weight:500;" x-text="b.stem"></td>
+                <td class="td-num" x-text="b.runs"></td>
+                <td class="td-num" style="color:var(--text-main);" x-text="b.avg"></td>
+                <td class="td-num" x-text="b.median"></td>
+                <td class="td-num" x-text="b.min"></td>
+                <td class="td-num" x-text="b.max"></td>
+                <td class="td-score" :style="`color: ${b.score >= 80 ? 'var(--pass)' : (b.score >= 50 ? 'var(--warn)' : 'var(--fail)')};`" x-text="b.score"></td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+        <div x-show="benchmarks.length === 0" style="text-align: center; padding: 40px; color: var(--text-dim); background: var(--bg-card); border-radius: 8px; border: 1px dashed var(--border); margin-top: 16px;">
+          No benchmark data available (need completed runs with durations).
+        </div>
+      </div>
     </div>
 
   </div>

@@ -7,8 +7,13 @@ document.addEventListener('alpine:init', () => {
         tab: 'report', // 'report' or 'catalog'
         loading: false,
         online: true,
+        apiError: '',
         etag: '',
         jobs: {}, // { folder_name: {status, job_id} }
+        logView: { key: null, text: '', offset: 0, jobId: null }, // one open log panel at a time
+        _logFetchInFlight: false,
+        batchCancelled: false, // set by cancelAllTests() to abort a Run All loop
+        lastUpdated: null,
         
         // filters
         searchQuery: '',
@@ -20,8 +25,8 @@ document.addEventListener('alpine:init', () => {
 
         async init() {
             await this.fetchData();
-            setInterval(() => this.fetchData(), 3000);
-            
+            setInterval(() => { if (!document.hidden) this.fetchData(); }, 3000);
+
             this.$watch('metrics', () => this.renderChart());
         },
 
@@ -56,6 +61,31 @@ document.addEventListener('alpine:init', () => {
             return groups;
         },
 
+        get benchmarks() {
+            let bMap = {};
+            this.runs.forEach(r => {
+                if (r.duration !== null && r.duration > 0 && (r.status === 'PASS' || r.status === 'FAIL')) {
+                    if (!bMap[r.stem]) bMap[r.stem] = [];
+                    bMap[r.stem].push(r.duration);
+                }
+            });
+            let list = [];
+            for (let stem in bMap) {
+                let durs = bMap[stem].sort((a,b) => a - b);
+                let sum = durs.reduce((a,b) => a+b, 0);
+                list.push({
+                    stem: stem,
+                    runs: durs.length,
+                    avg: (sum / durs.length).toFixed(2),
+                    median: durs[Math.floor(durs.length/2)].toFixed(2),
+                    min: durs[0].toFixed(2),
+                    max: durs[durs.length-1].toFixed(2),
+                    score: Math.max(0, 100 - Math.round(sum / durs.length)) // Simple formula: 100 - avg time
+                });
+            }
+            return list.sort((a,b) => a.stem.localeCompare(b.stem));
+        },
+
         async fetchData() {
             try {
                 this.loading = true;
@@ -67,6 +97,11 @@ document.addEventListener('alpine:init', () => {
                     this.etag = res.headers.get('ETag');
                     await this.fetchMetrics();
                     await this.fetchCatalog();
+                    this.apiError = '';
+                    this.lastUpdated = new Date();
+                } else if (res.status !== 304) {
+                    const body = await res.json().catch(() => ({}));
+                    this.apiError = `API error ${res.status}: ${body.error || 'unexpected response'}`;
                 }
             } catch (err) {
                 this.online = false;
@@ -89,10 +124,19 @@ document.addEventListener('alpine:init', () => {
             if (!this.metrics || !this.metrics.trend) return;
             const ctx = document.getElementById('trendChart');
             if (!ctx) return;
-            
-            const labels = this.metrics.trend.map(t => t.date);
-            const passRates = this.metrics.trend.map(t => t.pass_rate);
-            const totals = this.metrics.trend.map(t => t.total);
+
+            // Pad a synthetic previous day when there is a single point so the
+            // line chart can draw a line (presentation-only; API returns real dates).
+            let trend = this.metrics.trend;
+            if (trend.length === 1) {
+                const d = new Date(trend[0].date + 'T00:00:00Z');
+                d.setUTCDate(d.getUTCDate() - 1);
+                const prev = d.toISOString().slice(0, 10);
+                trend = [{ date: prev, total: 0, pass_rate: trend[0].pass_rate }, ...trend];
+            }
+            const labels = trend.map(t => t.date);
+            const passRates = trend.map(t => t.pass_rate);
+            const totals = trend.map(t => t.total);
             
             if (this.chartInstance) {
                 this.chartInstance.data.labels = labels;
@@ -217,8 +261,10 @@ document.addEventListener('alpine:init', () => {
                 alert('Emulator failed to start — batch aborted.');
                 return;
             }
+            this.batchCancelled = false;
             try {
                 for (const t of tests) {
+                    if (this.batchCancelled) break;
                     if (this.jobs[t]?.status === 'running') continue;
 
                     await this.runCatalogTest(suite, t, false); // batch: no per-test open/close
@@ -231,15 +277,52 @@ document.addEventListener('alpine:init', () => {
             }
         },
 
+        toggleLogs(key) {
+            if (this.logView.key === key) {
+                this.logView = { key: null, text: '', offset: 0, jobId: null };
+            } else {
+                this.logView = { key: key, text: '', offset: 0, jobId: null };
+                this.fetchLogs();
+            }
+        },
+
+        async fetchLogs() {
+            if (this._logFetchInFlight) return;
+            this._logFetchInFlight = true;
+            try {
+                const key = this.logView.key;
+                if (!key) return;
+                const jobId = this.jobs[key]?.job_id;
+                if (!jobId) return;
+                if (this.logView.jobId !== jobId) {
+                    this.logView.text = '';
+                    this.logView.offset = 0;
+                    this.logView.jobId = jobId;
+                }
+                try {
+                    const res = await fetch(`/rerun-logs/${encodeURIComponent(jobId)}?offset=${this.logView.offset}`);
+                    if (!res.ok) return;
+                    const data = await res.json();
+                    if (this.logView.key !== key) return; // panel switched while fetching
+                    if (data.text) this.logView.text += data.text;
+                    this.logView.offset = data.offset;
+                } catch (e) { /* next tick retries */ }
+            } finally {
+                this._logFetchInFlight = false;
+            }
+        },
+
         pollJob(jobId, key, standalone = true) {
             return new Promise(resolve => {
                 const interval = setInterval(async () => {
+                    if (this.logView.key === key) this.fetchLogs();
                     try {
                         const res = await fetch('/rerun-status/' + encodeURIComponent(jobId));
                         const data = await res.json();
                         if (data.status !== 'running') {
                             clearInterval(interval);
-                            this.jobs[key] = { status: data.status === 'done' ? 'completed' : 'failed' };
+                            this.jobs[key] = { status: data.status === 'done' ? 'completed' : 'failed', job_id: jobId };
+                            if (this.logView.key === key) await this.fetchLogs();
                             if (standalone) await this.stopEmulator(); // close on any terminal state
                             this.etag = ''; // force reload on next fetch
                             this.fetchData();
@@ -247,6 +330,7 @@ document.addEventListener('alpine:init', () => {
                         }
                     } catch(e) {
                         clearInterval(interval);
+                        this.jobs[key] = { status: 'poll error', job_id: jobId };
                         resolve('error');
                     }
                 }, 2000);
@@ -257,6 +341,19 @@ document.addEventListener('alpine:init', () => {
             try {
                 await fetch('/rerun-terminate/' + encodeURIComponent(jobId), { method: 'POST' });
             } catch (err) {}
+        },
+
+        get anyRunning() {
+            return Object.values(this.jobs).some(j => j?.status === 'running');
+        },
+
+        async cancelAllTests() {
+            if (!confirm('Cancel ALL running tests?')) return;
+            this.batchCancelled = true; // abort any in-progress Run All loop
+            try {
+                await fetch('/terminate-all', { method: 'POST' });
+            } catch (err) {}
+            // pollJob picks up the terminated status and updates each job row
         },
 
         async deleteRun(folder) {

@@ -290,9 +290,12 @@ def generate_summary_report(
         step_idx = 1
         for s in steps:
             raw_status = s["status"] if s["status"] in _VALID_STEP_STATUSES else "FAIL"
-            if raw_status == "PASS": row_cls = "pass"
-            elif raw_status == "INFO": row_cls = "info"
-            else: row_cls = "fail"
+            if raw_status == "PASS":
+                row_cls = "pass"
+            elif raw_status == "INFO":
+                row_cls = "info"
+            else:
+                row_cls = "fail"
             
             safe_name = _html.escape(s["name"])
             safe_action = _html.escape(s["action"])

@@ -1,5 +1,4 @@
 import logging
-import time
 from typing import Any
 
 from dagster.capture.log_utils import latest_screenshot

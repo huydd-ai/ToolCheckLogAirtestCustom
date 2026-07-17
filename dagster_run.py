@@ -21,14 +21,13 @@ from parallel_utils import list_devices, partition
 _dagster_dir = Path(__file__).resolve().parent
 _project_root = _dagster_dir.parent
 sys.path.insert(0, str(_project_root))
-sys.path.insert(0, str(_dagster_dir))
 
-from airtest.core.api import connect_device, init_device, G
+from airtest.core.api import connect_device, G  # noqa: E402 — import must follow sys.path.insert above
 
-from dagster.capture.log_utils import setup_console_logging, LOG_LEVEL
-from dagster.runner import run_single_test
-from dagster.capture.step_capture import patch_run_step
-from dagster.reports.aggregate_report import regenerate_global_report
+from dagster.capture.log_utils import setup_console_logging, LOG_LEVEL  # noqa: E402 — import must follow sys.path.insert above
+from dagster.runner import run_single_test  # noqa: E402 — import must follow sys.path.insert above
+from dagster.capture.step_capture import patch_run_step  # noqa: E402 — import must follow sys.path.insert above
+from dagster.reports.aggregate_report import regenerate_global_report  # noqa: E402 — import must follow sys.path.insert above
 
 def main():
     # 1. Setup Environment & Capture Hooks
