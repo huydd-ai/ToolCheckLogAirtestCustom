@@ -72,6 +72,28 @@ def test_second_bind_same_port_fails():
         s1.server_close()
 
 
+def test_cleanup_job_logs_removes_orphans_keeps_running(tmp_path, monkeypatch):
+    """Delete must leave only report assets at root: orphan job logs go,
+    running-job logs and non-.log files stay, run-folder logs untouched."""
+    monkeypatch.setattr(rs, "REPORT_ROOT", tmp_path)
+    (tmp_path / "orphan.log").write_text("old")
+    (tmp_path / "active.log").write_text("live")
+    (tmp_path / "report.html").write_text("<html>")
+    run_dir = tmp_path / "tc01_x_20260101_000000"
+    run_dir.mkdir()
+    (run_dir / "airtest.log").write_text("keep")
+    rs._jobs.clear()
+    rs._jobs["active"] = {"job_id": "active", "status": "running", "proc": _FakeProc(None)}
+    try:
+        rs._cleanup_job_logs()
+    finally:
+        rs._jobs.clear()
+    assert not (tmp_path / "orphan.log").exists()
+    assert (tmp_path / "active.log").exists()
+    assert (tmp_path / "report.html").exists()
+    assert (run_dir / "airtest.log").exists()
+
+
 def test_parse_offset_valid_invalid():
     assert rs.parse_offset({"offset": ["42"]}) == 42
     assert rs.parse_offset({}) == 0

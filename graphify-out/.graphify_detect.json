@@ -1,0 +1,17 @@
+{
+  "total_files": 192,
+  "total_words": 153231,
+  "files": {
+    "code": [
+      "D:\\AutoRebase\\dagster\\pixon\\adb_errors.py",
+      "D:\\AutoRebase\\dagster\\pixon\\adb_utils.py",
+      "D:\\AutoRebase\\dagster\\pixon\\autoplay_watchdog.py"
+    ],
+    "document": [],
+    "paper": [],
+    "image": [
+      "D:\\AutoRebase\\dagster\\pixon\\pages\\images\\btn_remove_ads.png"
+    ]
+  },
+  "warning": null
+}
