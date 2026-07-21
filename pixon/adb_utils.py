@@ -143,11 +143,22 @@ def is_adb_responsive(serial: str = "", timeout: float = 5, retries: int = 2) ->
     return False
 
 
-def _run_shell_as_root(cmd_str: str, serial: str = "") -> AdbResult:
-    """Run a shell command with root using 'su -c'.
+def ensure_adb_root(serial: str = "") -> bool:
+    """Run `adb root` so shell commands execute natively as root without superuser popup toasts on emulators."""
+    res = run_adb_command(["root"], serial=serial, check=False)
+    return res.success
 
-    Hardcoded for LDPlayer environment which always supports 'su -c'.
+
+def _run_shell_as_root(cmd_str: str, serial: str = "") -> AdbResult:
+    """Run a shell command as root without triggering su popup toasts on emulator.
+
+    First runs `adb root` so shell commands execute as root natively without su popup.
     """
+    ensure_adb_root(serial)
+    res = run_adb_command(["shell", cmd_str], serial=serial, check=False)
+    if res.success:
+        return res
+    # Fallback to su -c only if adb root is unsupported
     return run_adb_command(["shell", "su", "-c", f"'{cmd_str}'"], serial=serial, check=False)
 
 
@@ -155,6 +166,8 @@ def check_device_health(serial: str = "") -> bool:
     """Validate device is fully online and responsive before testing."""
     if not serial:
         serial = _get_serial()
+
+    ensure_adb_root(serial)
 
     # 1. State check
     res_state = run_adb_command(["get-state"], serial=serial, check=False)

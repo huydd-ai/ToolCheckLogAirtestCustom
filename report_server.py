@@ -126,6 +126,36 @@ def _prune_jobs() -> None:
         _jobs.pop(job["job_id"], None)
 
 
+def _cleanup_job_logs() -> None:
+    """Unlink orphaned rerun job logs (<uuid>.log) at the REPORT_ROOT top level.
+    Logs of still-running jobs are kept. Locked files are skipped and retried
+    on the next sweep. Run-folder logs are untouched (glob is non-recursive)."""
+    with _jobs_lock:
+        active = {j["job_id"] for j in _jobs.values() if j["status"] == "running"}
+    for lf in REPORT_ROOT.glob("*.log"):
+        if lf.stem in active:
+            continue
+        try:
+            lf.unlink()
+        except OSError:
+            pass
+
+def _delete_folder_and_its_job_log(folder_path: Path) -> None:
+    """Delete a run folder and scan/unlink any top-level <uuid>.log files referencing it."""
+    folder_name = folder_path.name
+    # Delete any top-level job .log file that references this folder name in its stdout
+    for lf in REPORT_ROOT.glob("*.log"):
+        try:
+            if lf.is_file():
+                content = lf.read_text(encoding="utf-8", errors="ignore")
+                if folder_name in content:
+                    lf.unlink()
+                    print(f"[report_server] Deleted job log {lf.name} referencing folder {folder_name}")
+        except Exception as e:
+            print(f"[report_server] Error checking/deleting log {lf.name}: {e}")
+    # Now remove the folder itself
+    shutil.rmtree(folder_path)
+
 def _terminate_job(job: dict) -> None:
     """Terminate a running job's process, force-stop the game app, mark the
     job failed and close its log handle. No-op if the job already finished."""
@@ -143,7 +173,12 @@ def _terminate_job(job: dict) -> None:
         except ImportError:
             pass
         pkg = os.environ.get("GAME_PACKAGE", "com.woodpuzzle.pin3d")
-        subprocess.run(["adb", "shell", "am", "force-stop", pkg], check=False)
+        try:
+            from airtest.core.android.adb import ADB
+            adb = ADB.builtin_adb_path()
+        except Exception:
+            adb = "adb"
+        subprocess.run([adb, "shell", "am", "force-stop", pkg], check=False)
     except Exception:
         pass
     with _jobs_lock:
@@ -196,6 +231,52 @@ class ReportHandler(SimpleHTTPRequestHandler):
             return str((Path(__file__).parent / "static" / rel).resolve())
         return super().translate_path(path)
 
+    def _handle_api_benchmarks(self) -> None:
+        try:
+            from urllib.parse import parse_qs, urlparse
+            from dagster.reports.report_data import scan_runs, compute_metrics
+            from dagster.benchmark import compute_benchmarks, evaluate_game_benchmarks
+
+            parsed_url = urlparse(self.path)
+            query_params = parse_qs(parsed_url.query)
+            mode = query_params.get("mode", ["normal"])[0]
+
+            runs = scan_runs(REPORT_ROOT)
+            bench_table = compute_benchmarks(runs)
+            game_benchmarks = evaluate_game_benchmarks(runs, mode=mode)
+            metrics = compute_metrics(runs)
+
+            payload = {
+                "benchmarks": bench_table,
+                "game_benchmarks": game_benchmarks,
+                "metrics": metrics,
+            }
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps(payload).encode())
+        except Exception as e:
+            self.send_response(500)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps({"error": str(e)}).encode())
+
+    def _handle_emulator_status(self) -> None:
+        from dagster.device.device_manager import device_manager
+        try:
+            devices = device_manager.get_healthy_devices()
+            active = len(devices) > 0
+            device_list = [d.serial for d in devices]
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps({"active": active, "devices": device_list}).encode())
+        except Exception as e:
+            self.send_response(500)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps({"error": str(e)}).encode())
+
     def do_POST(self):
         if self.path.startswith("/delete/"):
             folder_name = self.path.removeprefix("/delete/").split("?", 1)[0]
@@ -207,17 +288,13 @@ class ReportHandler(SimpleHTTPRequestHandler):
                 self.wfile.write(json.dumps({"error": "not found"}).encode())
                 return
             try:
-                # Clear logs and all files inside the folder
-                log_files = []
-                for item in target.iterdir():
-                    if item.is_file() and (item.suffix in ('.txt', '.log') or item.name.startswith('log')):
-                        log_files.append(item.name)
-                shutil.rmtree(target)
+                _delete_folder_and_its_job_log(target)
+                _cleanup_job_logs()
                 regenerate_global_report(REPORT_ROOT)
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
                 self.end_headers()
-                self.wfile.write(json.dumps({"deleted": folder_name, "logs_cleared": log_files}).encode())
+                self.wfile.write(json.dumps({"deleted": folder_name}).encode())
             except OSError as e:
                 self.send_response(500)
                 self.send_header("Content-Type", "application/json")
@@ -240,10 +317,11 @@ class ReportHandler(SimpleHTTPRequestHandler):
                 if iso_date != date_str:
                     continue
                 try:
-                    shutil.rmtree(child)
+                    _delete_folder_and_its_job_log(child)
                     deleted.append(child.name)
                 except OSError as e:
                     errors.append({"folder": child.name, "error": str(e)})
+            _cleanup_job_logs()
             if deleted:
                 regenerate_global_report(REPORT_ROOT)
             body = json.dumps({"deleted": deleted, "errors": errors})
@@ -480,6 +558,12 @@ class ReportHandler(SimpleHTTPRequestHandler):
         if clean == "/api/catalog":
             self._handle_api_catalog()
             return
+        if clean == "/api/benchmarks":
+            self._handle_api_benchmarks()
+            return
+        if clean == "/emulator/status":
+            self._handle_emulator_status()
+            return
         if clean.startswith("/rerun-logs/"):
             job_id = clean.removeprefix("/rerun-logs/")
             self._handle_rerun_logs(job_id)
@@ -552,6 +636,9 @@ def main():
         REPORT_ROOT.mkdir(parents=True)
         print(f"[report_server] Created root: {REPORT_ROOT}")
 
+    # Sweep job logs orphaned by previous server sessions
+    _cleanup_job_logs()
+
     # Ensure the global report is generated before serving
     try:
         regenerate_global_report(REPORT_ROOT)
@@ -569,41 +656,6 @@ def main():
     except Exception as e:
         print(f"[report_server] Failed to automatically open browser: {e}")
 
-    def sync_tests():
-        import stat
-        source = str(TEST_ROOT)
-        target = str(_dagster_dir / "tests_mirror")
-        last_mtime = {}
-        print(f"[report_server] Auto-syncing tests from {source} to {target}...")
-        while True:
-            try:
-                for root, _, files in os.walk(source):
-                    for file in files:
-                        if file.endswith('.py'):
-                            src_path = os.path.join(root, file)
-                            mtime = os.stat(src_path).st_mtime
-                            
-                            if src_path not in last_mtime or last_mtime[src_path] < mtime:
-                                rel_path = os.path.relpath(src_path, source)
-                                dst_path = os.path.join(target, rel_path)
-                                
-                                os.makedirs(os.path.dirname(dst_path), exist_ok=True)
-                                
-                                if os.path.exists(dst_path):
-                                    os.chmod(dst_path, stat.S_IWRITE)
-                                    
-                                try:
-                                    shutil.copy2(src_path, dst_path)
-                                    print(f"[report_server] Synced updated test: {rel_path}")
-                                except shutil.SameFileError:
-                                    pass # Ignore if it's already a junction or symlink
-                                last_mtime[src_path] = mtime
-                time.sleep(2)
-            except Exception as e:
-                print(f"[report_server] Sync error: {e}")
-                time.sleep(5)
-
-    threading.Thread(target=sync_tests, daemon=True).start()
 
     try:
         server.serve_forever()

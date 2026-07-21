@@ -14,20 +14,74 @@ document.addEventListener('alpine:init', () => {
         _logFetchInFlight: false,
         batchCancelled: false, // set by cancelAllTests() to abort a Run All loop
         lastUpdated: null,
-        
+        gameBenchmarks: null,
+        backendBenchmarks: null,
+        benchmarkMode: 'normal',
+        scoreModalOpen: false,
+        selectedScoreData: null,
+        metricModalOpen: false,
+        selectedMetricData: null,
+
+        metricGuide: [], // 12 benchmark definitions — single source, fetched from /static/metric_guide.json
+
         // filters
         searchQuery: '',
         filterStatus: 'all',
         filterDevice: '',
         filterSuite: '',
         
-        chartInstance: null,
+        // emulator & catalog search
+        emulatorActive: false,
+        emulatorLoading: false,
+        activeDevices: [],
+        catalogSearchQuery: '',
+        
+        // device uptime tracker
+        deviceUptimeStart: null,
+        deviceUptimeSeconds: 0,
+        uptimeTimer: null,
+        
+        // scroll state
+        showBackToTop: false,
 
         async init() {
-            await this.fetchData();
-            setInterval(() => { if (!document.hidden) this.fetchData(); }, 3000);
+            window.addEventListener('scroll', () => {
+                this.showBackToTop = window.scrollY > 300;
+            });
+
+            await this.fetchMetricGuide();
+            await this.refreshAllData();
+
+            // Adaptive realtime loop: poll fast (2s) while a job runs, slow (10s) when idle.
+            // Skips hidden tabs; refetches instantly when the tab regains focus so numbers
+            // are never stale on return. Self-scheduling setTimeout so the interval can change.
+            const tick = async () => {
+                if (!document.hidden) await this.refreshAllData();
+                this._pollTimer = setTimeout(tick, this.anyRunning ? 2000 : 10000);
+            };
+            this._pollTimer = setTimeout(tick, this.anyRunning ? 2000 : 10000);
+
+            document.addEventListener('visibilitychange', () => {
+                if (!document.hidden) this.refreshAllData();
+            });
+
+            this.$watch('tab', (val) => {
+                if (val === 'benchmark') {
+                    this.refreshAllData();
+                }
+            });
 
             this.$watch('metrics', () => this.renderChart());
+        },
+
+        async refreshAllData() {
+            await this.fetchData();
+            await this.fetchEmulatorStatus();
+            await this.fetchBenchmarks();
+        },
+
+        scrollToTop() {
+            window.scrollTo({ top: 0, behavior: 'smooth' });
         },
 
         get groupedRuns() {
@@ -61,6 +115,22 @@ document.addEventListener('alpine:init', () => {
             return groups;
         },
 
+        get filteredCatalog() {
+            if (!this.catalog) return {};
+            if (!this.catalogSearchQuery) return this.catalog;
+            
+            let query = this.catalogSearchQuery.toLowerCase();
+            let filtered = {};
+            
+            for (let suite in this.catalog) {
+                let matchedTests = this.catalog[suite].filter(t => t.toLowerCase().includes(query));
+                if (matchedTests.length > 0 || suite.toLowerCase().includes(query)) {
+                    filtered[suite] = matchedTests.length > 0 ? matchedTests : this.catalog[suite];
+                }
+            }
+            return filtered;
+        },
+
         get benchmarks() {
             let bMap = {};
             this.runs.forEach(r => {
@@ -86,6 +156,81 @@ document.addEventListener('alpine:init', () => {
             return list.sort((a,b) => a.stem.localeCompare(b.stem));
         },
 
+        get benchmarkList() {
+            if (this.backendBenchmarks && Object.keys(this.backendBenchmarks).length > 0) {
+                return Object.values(this.backendBenchmarks).sort((a,b) => a.stem.localeCompare(b.stem));
+            }
+            return this.benchmarks;
+        },
+
+        get overallScore() {
+            let list = this.benchmarkList;
+            if (!list || list.length === 0) return 0;
+            let sum = list.reduce((acc, b) => acc + (b.score || 0), 0);
+            return (sum / list.length).toFixed(1);
+        },
+
+        get overallAvgRuntime() {
+            let list = this.benchmarkList;
+            if (!list || list.length === 0) return 0;
+            let sum = list.reduce((acc, b) => acc + (parseFloat(b.avg) || 0), 0);
+            return (sum / list.length).toFixed(2);
+        },
+
+        openScoreModal(b) {
+            if (!b) return;
+            const passRate = b.pass_rate !== undefined ? b.pass_rate : 100.0;
+            const passScore = +(passRate * 0.70).toFixed(1);
+            const avg = parseFloat(b.avg) || 1.0;
+            const stddev = parseFloat(b.stddev) || 0.0;
+            const varRatio = avg > 0 ? Math.min(1.0, stddev / avg) : 0;
+            const stabilityScore = +((1.0 - varRatio) * 30.0).toFixed(1);
+
+            this.selectedScoreData = {
+                stem: b.stem,
+                suite: b.suite || 'unknown',
+                score: b.score !== undefined ? b.score : 100,
+                passRate: passRate,
+                passScore: passScore,
+                stabilityScore: stabilityScore,
+                runs: b.runs || 1,
+                passCount: b.pass_count || (passRate >= 100 ? b.runs : 0),
+                failCount: b.fail_count || 0,
+                avg: b.avg,
+                median: b.median,
+                p90: b.p90 || b.max,
+                min: b.min,
+                max: b.max,
+                stddev: b.stddev !== undefined ? b.stddev : '0.00',
+                varRatioPct: (varRatio * 100).toFixed(1)
+            };
+            this.scoreModalOpen = true;
+        },
+
+        closeScoreModal() {
+            this.scoreModalOpen = false;
+            this.selectedScoreData = null;
+        },
+
+        async fetchMetricGuide() {
+            try {
+                const res = await fetch('/static/metric_guide.json');
+                if (res.ok) this.metricGuide = await res.json();
+            } catch (e) { /* modals/tables just render empty until it loads */ }
+        },
+
+        openMetricModal(key) {
+            const m = this.metricGuide.find(g => g.key === key);
+            if (!m) return;
+            this.selectedMetricData = m;
+            this.metricModalOpen = true;
+        },
+
+        closeMetricModal() {
+            this.metricModalOpen = false;
+            this.selectedMetricData = null;
+        },
+
         async fetchData() {
             try {
                 this.loading = true;
@@ -103,6 +248,8 @@ document.addEventListener('alpine:init', () => {
                     const body = await res.json().catch(() => ({}));
                     this.apiError = `API error ${res.status}: ${body.error || 'unexpected response'}`;
                 }
+                // Always refresh benchmarks so live ADB device telemetry updates on every poll
+                await this.fetchBenchmarks();
             } catch (err) {
                 this.online = false;
             } finally {
@@ -118,6 +265,77 @@ document.addEventListener('alpine:init', () => {
         async fetchCatalog() {
             const res = await fetch('/api/catalog');
             if (res.ok) this.catalog = await res.json();
+        },
+
+        async setBenchmarkMode(mode) {
+            this.benchmarkMode = mode;
+            await this.fetchBenchmarks();
+        },
+
+        get formattedUptime() {
+            const totalSec = this.deviceUptimeSeconds || 0;
+            const hrs = Math.floor(totalSec / 3600);
+            const mins = Math.floor((totalSec % 3600) / 60);
+            const secs = totalSec % 60;
+            const pad = (n) => String(n).padStart(2, '0');
+            if (hrs > 0) {
+                return `${pad(hrs)}:${pad(mins)}:${pad(secs)}`;
+            }
+            return `${pad(mins)}:${pad(secs)}`;
+        },
+
+        updateUptimeTracker() {
+            const hasLiveDevs = this.gameBenchmarks?.live_devices && this.gameBenchmarks.live_devices.length > 0;
+            const hasActiveDevs = this.activeDevices && this.activeDevices.length > 0;
+            const isAnyActive = Boolean(this.emulatorActive || hasLiveDevs || hasActiveDevs);
+            
+            if (isAnyActive) {
+                if (!this.deviceUptimeStart) {
+                    this.deviceUptimeStart = Date.now();
+                }
+                if (!this.uptimeTimer) {
+                    this.uptimeTimer = setInterval(() => {
+                        if (this.deviceUptimeStart) {
+                            this.deviceUptimeSeconds = Math.floor((Date.now() - this.deviceUptimeStart) / 1000);
+                        }
+                    }, 1000);
+                }
+            } else {
+                // Reset running time when device turns off
+                this.deviceUptimeStart = null;
+                this.deviceUptimeSeconds = 0;
+                if (this.uptimeTimer) {
+                    clearInterval(this.uptimeTimer);
+                    this.uptimeTimer = null;
+                }
+            }
+        },
+
+        async fetchBenchmarks() {
+            try {
+                const res = await fetch(`/api/benchmarks?mode=${this.benchmarkMode}`);
+                if (res.ok) {
+                    const data = await res.json();
+                    this.gameBenchmarks = data.game_benchmarks;
+                    this.backendBenchmarks = data.benchmarks;
+                }
+            } catch (e) {}
+            this.updateUptimeTracker();
+        },
+
+        async fetchEmulatorStatus() {
+            try {
+                const res = await fetch('/emulator/status');
+                if (res.ok) {
+                    const data = await res.json();
+                    this.emulatorActive = data.active;
+                    this.activeDevices = data.devices || [];
+                }
+            } catch (e) {
+                this.emulatorActive = false;
+                this.activeDevices = [];
+            }
+            this.updateUptimeTracker();
         },
 
         renderChart() {
@@ -155,19 +373,23 @@ document.addEventListener('alpine:init', () => {
                             label: 'Pass Rate (%)',
                             data: passRates,
                             borderColor: '#10b981',
-                            backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                            backgroundColor: 'rgba(16, 185, 129, 0.04)',
                             yAxisID: 'y',
                             fill: true,
                             tension: 0.3,
-                            pointRadius: 5,
-                            pointHoverRadius: 7
+                            pointRadius: 4,
+                            pointHoverRadius: 6,
+                            borderWidth: 2
                         },
                         {
                             label: 'Total Runs',
                             data: totals,
                             type: 'bar',
-                            backgroundColor: 'rgba(59, 130, 246, 0.5)',
-                            yAxisID: 'y1'
+                            backgroundColor: 'rgba(99, 102, 241, 0.4)',
+                            borderColor: 'rgba(99, 102, 241, 0.6)',
+                            borderWidth: 1,
+                            yAxisID: 'y1',
+                            borderRadius: 4
                         }
                     ]
                 },
@@ -176,11 +398,28 @@ document.addEventListener('alpine:init', () => {
                     maintainAspectRatio: false,
                     interaction: { mode: 'index', intersect: false },
                     scales: {
-                        y: { type: 'linear', position: 'left', min: 0, max: 100 },
-                        y1: { type: 'linear', position: 'right', min: 0, grid: { drawOnChartArea: false } }
+                        y: { 
+                            type: 'linear', 
+                            position: 'left', 
+                            min: 0, 
+                            max: 100,
+                            grid: { color: 'rgba(255,255,255,0.05)' },
+                            ticks: { color: '#94a3b8', font: { family: 'Inter' } }
+                        },
+                        y1: { 
+                            type: 'linear', 
+                            position: 'right', 
+                            min: 0, 
+                            grid: { drawOnChartArea: false },
+                            ticks: { color: '#94a3b8', font: { family: 'Inter' } }
+                        },
+                        x: {
+                            grid: { color: 'rgba(255,255,255,0.05)' },
+                            ticks: { color: '#94a3b8', font: { family: 'Inter' } }
+                        }
                     },
                     plugins: {
-                        legend: { labels: { color: '#e2e8f0' } }
+                        legend: { labels: { color: '#f8fafc', font: { family: 'Inter', weight: '500' } } }
                     }
                 }
             });
@@ -199,6 +438,20 @@ document.addEventListener('alpine:init', () => {
             try {
                 await fetch('/emulator/stop', { method: 'POST' });
             } catch (e) { /* best-effort close */ }
+        },
+
+        async manuallyStartEmulator() {
+            this.emulatorLoading = true;
+            await this.startEmulator();
+            this.emulatorLoading = false;
+            await this.fetchEmulatorStatus();
+        },
+
+        async manuallyStopEmulator() {
+            this.emulatorLoading = true;
+            await this.stopEmulator();
+            this.emulatorLoading = false;
+            await this.fetchEmulatorStatus();
         },
 
         async rerunTest(folder) {
@@ -363,10 +616,15 @@ document.addEventListener('alpine:init', () => {
                 if (res.ok) {
                     this.etag = '';
                     this.fetchData();
+                } else {
+                    const body = await res.json().catch(() => ({}));
+                    this.apiError = `Delete failed (${res.status}): ${body.error || 'unexpected response'}`;
                 }
-            } catch (err) {}
+            } catch (err) {
+                this.apiError = 'Delete failed: ' + err;
+            }
         },
-        
+
         async deleteDate(dateStr) {
             if (!confirm('Delete all runs on ' + dateStr + '?')) return;
             try {
@@ -374,8 +632,20 @@ document.addEventListener('alpine:init', () => {
                 if (res.ok) {
                     this.etag = '';
                     this.fetchData();
+                } else {
+                    const body = await res.json().catch(() => ({}));
+                    this.apiError = `Delete failed (${res.status}): ${body.error || 'unexpected response'}`;
                 }
-            } catch (err) {}
+            } catch (err) {
+                this.apiError = 'Delete failed: ' + err;
+            }
+        },
+
+        copyLogs() {
+            if (!this.logView.text) return;
+            navigator.clipboard.writeText(this.logView.text)
+                .then(() => alert('Log content copied to clipboard!'))
+                .catch(() => alert('Failed to copy log.'));
         }
     }));
 });

@@ -40,7 +40,15 @@ class RunEntry:
     suite: str = "unknown"
     duration: float | None = None
     error_summary: str | None = None
-    
+    fps_avg: float | None = None
+    fps_min: float | None = None
+    ram_mb_peak: float | None = None
+    ram_mb_delta: float | None = None
+    scene_load_sec: float | None = None
+    asset_errors: int = 0
+    chipset: str = "unknown"
+    net_profile: str = "unknown"
+
     def to_dict(self):
         d = dict(self.__dict__)
         d['when'] = self.when.isoformat()
@@ -124,13 +132,44 @@ def scan_runs(report_root: Path) -> list[RunEntry]:
         # Parse duration
         duration = None
         try:
-            mtime = log_path.stat().st_mtime
-            airtest_log = child / "airtest.log"
-            if airtest_log.exists():
-                mtime = max(mtime, airtest_log.stat().st_mtime)
-            duration = max(0.0, mtime - when.timestamp())
+            # Extract step timestamps (13-digit ms epoch) from log.txt
+            ts_matches = [float(m.group(1)) / 1000.0 for m in re.finditer(r"(\d{13})\.jpg", head)]
+            if len(ts_matches) >= 2:
+                duration = max(0.0, max(ts_matches) - min(ts_matches))
+            else:
+                # Fallback to log file modification time vs folder creation time
+                log_mtime = log_path.stat().st_mtime
+                folder_ctime = child.stat().st_ctime
+                duration = max(0.0, log_mtime - folder_ctime)
         except OSError:
             pass
+
+        # Parse optional performance & infrastructure metrics
+        fps_avg = None
+        fps_min = None
+        ram_mb_peak = None
+        ram_mb_delta = None
+        scene_load_sec = None
+        asset_errors = 0
+        chipset = "unknown"
+        net_profile = "unknown"
+
+        perf_json = child / "perf_metrics.json"
+        if perf_json.exists():
+            try:
+                import json
+                with perf_json.open("r", encoding="utf-8") as pf:
+                    pdata = json.load(pf)
+                    fps_avg = pdata.get("fps_avg")
+                    fps_min = pdata.get("fps_min")
+                    ram_mb_peak = pdata.get("ram_mb_peak")
+                    ram_mb_delta = pdata.get("ram_mb_delta")
+                    scene_load_sec = pdata.get("scene_load_sec")
+                    asset_errors = pdata.get("asset_errors", 0)
+                    chipset = pdata.get("chipset", "unknown")
+                    net_profile = pdata.get("net_profile", "unknown")
+            except Exception:
+                pass
 
         entries.append(
             RunEntry(
@@ -143,6 +182,14 @@ def scan_runs(report_root: Path) -> list[RunEntry]:
                 suite=suite,
                 duration=duration,
                 error_summary=error_summary,
+                fps_avg=fps_avg,
+                fps_min=fps_min,
+                ram_mb_peak=ram_mb_peak,
+                ram_mb_delta=ram_mb_delta,
+                scene_load_sec=scene_load_sec,
+                asset_errors=asset_errors,
+                chipset=chipset,
+                net_profile=net_profile,
             )
         )
     entries.sort(key=lambda x: x.when, reverse=True)
@@ -150,7 +197,7 @@ def scan_runs(report_root: Path) -> list[RunEntry]:
 
 
 def compute_metrics(runs: list[RunEntry]) -> dict:
-    """Compute aggregate metrics: totals, trend, and flaky tests."""
+    """Compute aggregate metrics: totals, trend, flaky tests, and benchmark indicators."""
     total = len(runs)
     n_pass = sum(1 for r in runs if r.status == "PASS")
     n_fail = sum(1 for r in runs if r.status == "FAIL")
@@ -183,15 +230,26 @@ def compute_metrics(runs: list[RunEntry]) -> dict:
         if r.status in ("PASS", "FAIL"):
             by_stem.setdefault(r.stem, []).append(r)
             
-    flaky_count = 0
+    flaky_stems = []
     for stem, stem_runs in by_stem.items():
         stem_runs.sort(key=lambda x: x.when, reverse=True)
         recent_10 = stem_runs[:10]
         has_pass = any(r.status == "PASS" for r in recent_10)
         has_fail = any(r.status == "FAIL" for r in recent_10)
         if has_pass and has_fail:
-            flaky_count += 1
-            
+            flaky_stems.append(stem)
+
+    flaky_count = len(flaky_stems)
+    total_stems = len(by_stem)
+    flaky_ratio = round((flaky_count / total_stems) * 100, 1) if total_stems > 0 else 0.0
+
+    # Aggregate performance metrics across runs
+    fps_vals = [r.fps_avg for r in runs if r.fps_avg is not None]
+    avg_fps = round(sum(fps_vals) / len(fps_vals), 1) if fps_vals else None
+
+    unique_devices = len({r.device for r in runs if r.device != "unknown"})
+    unique_chipsets = len({r.chipset for r in runs if r.chipset != "unknown"})
+
     return {
         "total": total,
         "pass": n_pass,
@@ -201,6 +259,11 @@ def compute_metrics(runs: list[RunEntry]) -> dict:
         "pass_rate": pass_rate,
         "trend": trend,
         "flaky": flaky_count,
+        "flaky_ratio": flaky_ratio,
+        "flaky_stems": flaky_stems,
+        "avg_fps": avg_fps,
+        "unique_devices": unique_devices,
+        "unique_chipsets": unique_chipsets,
     }
 
 

@@ -48,11 +48,15 @@ def run_single_test(air_path: Path, py_script: Path, mode: str, device_id: str, 
         print(f"[WARN] Failed to start recorder: {e}", file=sys.stderr)
 
     from dagster.capture.error_capture import clear_errors
+    from dagster.capture.performance_probe import PerformanceProbe
     clear_errors()
     clear_steps()
     init_annotator(test_name=module_name)
     error_top = None
     status = "PASS"
+
+    perf_probe = PerformanceProbe(serial=device_id or None)
+    perf_probe.start()
 
     try:
         import runpy
@@ -101,6 +105,12 @@ def run_single_test(air_path: Path, py_script: Path, mode: str, device_id: str, 
         status = "FAIL"
         print(f"[FAIL] {module_name}: {e}")
     finally:
+        if perf_probe:
+            try:
+                perf_probe.stop(out_dir)
+            except Exception as e:
+                print(f"[WARN] perf_probe stop: {e}", file=sys.stderr)
+
         if recorder:
             try:
                 recorder.stop()
