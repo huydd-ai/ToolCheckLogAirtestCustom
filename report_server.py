@@ -13,6 +13,7 @@ import argparse
 import hashlib
 import json
 import os
+import queue
 import re
 import shutil
 import subprocess
@@ -209,6 +210,63 @@ def parse_offset(query: dict) -> int | None:
     except (ValueError, TypeError, IndexError):
         return None
     return offset if offset >= 0 else None
+
+
+# --- Server-Sent Events: push real-time updates instead of client polling ---
+_sse_clients: set[queue.Queue] = set()
+_sse_lock = threading.Lock()
+
+
+def _sse_broadcast(event: str) -> None:
+    """Fan an event name out to every connected SSE client. Drops the event for
+    any client whose queue is full (slow reader) — it recovers on the next
+    update since the client refetches full state anyway."""
+    with _sse_lock:
+        clients = list(_sse_clients)
+    for q in clients:
+        try:
+            q.put_nowait(event)
+        except queue.Full:
+            pass
+
+
+def _runs_signature() -> str:
+    """Cheap local signature of run folders + job statuses. Changes when a run is
+    added/removed/updated or a job transitions state. No ADB calls — safe to poll
+    fast. ponytail: full scan_runs each tick; swap for dir-mtime stat if it ever
+    shows up in a profile."""
+    try:
+        from dagster.reports.report_data import scan_runs
+        parts = []
+        for r in scan_runs(REPORT_ROOT):
+            lp = REPORT_ROOT / r.folder / "log.txt"
+            m = lp.stat().st_mtime if lp.exists() else 0.0
+            parts.append((r.folder, m))
+        sig = _compute_etag(parts)
+    except Exception:
+        sig = ""
+    with _jobs_lock:
+        jobsig = ",".join(f"{j['job_id']}:{j['status']}" for j in _jobs.values())
+    return f"{sig}|{hashlib.md5(jobsig.encode()).hexdigest()[:8]}"
+
+
+def _sse_watcher() -> None:
+    """Daemon loop: broadcast 'update' the instant run/job state changes (~500ms
+    detection, filesystem-only), and a 'telemetry' tick ~1s to drive ADB probes."""
+    last = None
+    i = 0
+    while True:
+        try:
+            sig = _runs_signature()
+            if sig != last:
+                last = sig
+                _sse_broadcast("update")
+            if i % 2 == 0:  # ~every 1s
+                _sse_broadcast("telemetry")
+        except Exception:
+            pass
+        i += 1
+        time.sleep(0.5)
 
 
 class ReportHandler(SimpleHTTPRequestHandler):
@@ -564,6 +622,9 @@ class ReportHandler(SimpleHTTPRequestHandler):
         if clean == "/emulator/status":
             self._handle_emulator_status()
             return
+        if clean == "/api/events":
+            self._handle_sse()
+            return
         if clean.startswith("/rerun-logs/"):
             job_id = clean.removeprefix("/rerun-logs/")
             self._handle_rerun_logs(job_id)
@@ -605,6 +666,37 @@ class ReportHandler(SimpleHTTPRequestHandler):
         except OSError as e:
             self._json(500, {"error": str(e)})
 
+    def _handle_sse(self) -> None:
+        """Hold an event-stream open and push watcher events to this client.
+        Blocks this request thread until the client disconnects (ThreadingHTTPServer
+        gives each connection its own thread, so this is fine at dashboard scale)."""
+        q: queue.Queue = queue.Queue(maxsize=64)
+        with _sse_lock:
+            _sse_clients.add(q)
+        try:
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.send_header("Connection", "keep-alive")
+            self.send_header("X-Accel-Buffering", "no")  # disable proxy buffering
+            self.end_headers()
+            # Prime the client so it syncs immediately on connect.
+            self.wfile.write(b"event: update\ndata: {}\n\n")
+            self.wfile.flush()
+            while True:
+                try:
+                    event = q.get(timeout=15)
+                except queue.Empty:
+                    self.wfile.write(b": ping\n\n")  # heartbeat keeps the connection alive
+                    self.wfile.flush()
+                    continue
+                self.wfile.write(f"event: {event}\ndata: {{}}\n\n".encode())
+                self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError, OSError):
+            pass  # client closed — fall through to cleanup
+        finally:
+            with _sse_lock:
+                _sse_clients.discard(q)
+
     def log_message(self, fmt, *args):
         sys.stderr.write(f"[report_server] {args[0]}\n")
 
@@ -620,6 +712,14 @@ class ReportServer(ThreadingHTTPServer):
     # Two instances silently double-bind one port on Windows with SO_REUSEADDR;
     # fail fast with "address already in use" instead.
     allow_reuse_address = False
+
+    def handle_error(self, request, client_address):
+        # Long-lived SSE clients dropping the stream raise ConnectionError on the
+        # next socket read (WinError 10053/10054). Benign — the handler already
+        # unregistered the client — so swallow it instead of dumping a traceback.
+        if isinstance(sys.exc_info()[1], ConnectionError):
+            return
+        super().handle_error(request, client_address)
 
 
 def main():
@@ -638,6 +738,9 @@ def main():
 
     # Sweep job logs orphaned by previous server sessions
     _cleanup_job_logs()
+
+    # Start the SSE watcher so clients get real-time push instead of polling
+    threading.Thread(target=_sse_watcher, daemon=True).start()
 
     # Ensure the global report is generated before serving
     try:

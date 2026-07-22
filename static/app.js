@@ -52,14 +52,14 @@ document.addEventListener('alpine:init', () => {
             await this.fetchMetricGuide();
             await this.refreshAllData();
 
-            // Adaptive realtime loop: poll fast (2s) while a job runs, slow (10s) when idle.
-            // Skips hidden tabs; refetches instantly when the tab regains focus so numbers
-            // are never stale on return. Self-scheduling setTimeout so the interval can change.
-            const tick = async () => {
-                if (!document.hidden) await this.refreshAllData();
-                this._pollTimer = setTimeout(tick, this.anyRunning ? 2000 : 10000);
-            };
-            this._pollTimer = setTimeout(tick, this.anyRunning ? 2000 : 10000);
+            // Real-time updates via Server-Sent Events — no fixed poll delay.
+            //   'update'    -> run/job/delete changed: refetch full state (ETag-cheap)
+            //   'telemetry' -> ~1s probe tick: refresh device benchmarks + emulator status
+            this._connectSSE();
+
+            // Safety net: EventSource auto-reconnects on drop, but a silent proxy stall
+            // could swallow events — a slow 30s poll guarantees eventual consistency.
+            setInterval(() => { if (!document.hidden) this.refreshAllData(); }, 30000);
 
             document.addEventListener('visibilitychange', () => {
                 if (!document.hidden) this.refreshAllData();
@@ -78,6 +78,21 @@ document.addEventListener('alpine:init', () => {
             await this.fetchData();
             await this.fetchEmulatorStatus();
             await this.fetchBenchmarks();
+        },
+
+        _connectSSE() {
+            try {
+                const es = new EventSource('/api/events');
+                es.addEventListener('update', () => { if (!document.hidden) this.fetchData(); });
+                es.addEventListener('telemetry', () => {
+                    if (document.hidden) return;
+                    this.fetchBenchmarks();
+                    this.fetchEmulatorStatus();
+                });
+                es.onopen = () => { this.online = true; };
+                es.onerror = () => { this.online = false; }; // browser auto-reconnects
+                this._sse = es;
+            } catch (e) { /* SSE unsupported -> 30s fallback poll covers it */ }
         },
 
         scrollToTop() {
