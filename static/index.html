@@ -308,60 +308,60 @@
             <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; margin-bottom: 16px;">
               
               <!-- Meter 1: Average FPS (Avg FPS) -->
-              <div style="background: rgba(15, 23, 42, 0.6); border: 1px solid var(--border); border-radius: 10px; padding: 14px;">
-                <div style="display: flex; justify-content: space-between; font-size: 11px; color: var(--text-dim); margin-bottom: 6px;">
+              <div class="telemetry-meter">
+                <div class="tm-head">
                   <span>AVERAGE FPS (Avg FPS)</span>
-                  <strong style="color: #38bdf8;" x-text="(gameBenchmarks?.categories?.game_performance?.avg_fps || 58.5) + ' FPS'"></strong>
+                  <strong class="tm-val" x-text="(gameBenchmarks?.categories?.game_performance?.avg_fps || 58.5) + ' FPS'"></strong>
                 </div>
-                <div style="width: 100%; height: 6px; background: var(--bg-main); border-radius: 3px; overflow: hidden; margin-bottom: 8px;">
-                  <div style="height: 100%; transition: width 0.3s ease;" :style="`width: ${Math.min(100, ((gameBenchmarks?.categories?.game_performance?.avg_fps || 58.5) / 60) * 100)}%; background: ${(gameBenchmarks?.categories?.game_performance?.avg_fps || 58.5) < 55 ? 'var(--warn)' : 'var(--pass)'};`"></div>
+                <div class="tm-track">
+                  <div class="tm-fill" :style="`width: ${Math.min(100, ((gameBenchmarks?.categories?.game_performance?.avg_fps || 58.5) / 60) * 100)}%; background: ${(gameBenchmarks?.categories?.game_performance?.avg_fps || 58.5) < 55 ? 'var(--warn)' : 'var(--pass)'};`"></div>
                 </div>
-                <div style="display: flex; justify-content: space-between; font-size: 10px;">
+                <div class="tm-foot">
                   <span>Benchmark: ≥ 55 FPS</span>
                   <span :style="`color: ${(gameBenchmarks?.categories?.game_performance?.avg_fps || 58.5) >= 55 ? 'var(--pass)' : 'var(--warn)'}`" x-text="(gameBenchmarks?.categories?.game_performance?.avg_fps || 58.5) >= 55 ? 'PASS' : 'SUB-OPTIMAL'"></span>
                 </div>
               </div>
 
               <!-- Meter 2: Combo FPS Drop Delta (ΔFPS_combo) -->
-              <div style="background: rgba(15, 23, 42, 0.6); border: 1px solid var(--border); border-radius: 10px; padding: 14px;">
-                <div style="display: flex; justify-content: space-between; font-size: 11px; color: var(--text-dim); margin-bottom: 6px;">
+              <div class="telemetry-meter">
+                <div class="tm-head">
                   <span>COMBO FPS DROP (ΔFPS_combo)</span>
-                  <strong style="color: #38bdf8;" x-text="(gameBenchmarks?.categories?.game_performance?.combo_drop_fps || 4.0) + ' FPS'"></strong>
+                  <strong class="tm-val" x-text="(gameBenchmarks?.categories?.game_performance?.combo_drop_fps || 4.0) + ' FPS'"></strong>
                 </div>
-                <div style="width: 100%; height: 6px; background: var(--bg-main); border-radius: 3px; overflow: hidden; margin-bottom: 8px;">
-                  <div style="height: 100%; transition: width 0.3s ease;" :style="`width: ${Math.min(100, ((gameBenchmarks?.categories?.game_performance?.combo_drop_fps || 4.0) / 10) * 100)}%; background: ${(gameBenchmarks?.categories?.game_performance?.combo_drop_fps || 4.0) > 5 ? 'var(--fail)' : 'var(--pass)'};`"></div>
+                <div class="tm-track">
+                  <div class="tm-fill" :style="`width: ${Math.min(100, ((gameBenchmarks?.categories?.game_performance?.combo_drop_fps || 4.0) / 10) * 100)}%; background: ${(gameBenchmarks?.categories?.game_performance?.combo_drop_fps || 4.0) > 5 ? 'var(--fail)' : 'var(--pass)'};`"></div>
                 </div>
-                <div style="display: flex; justify-content: space-between; font-size: 10px;">
+                <div class="tm-foot">
                   <span>Benchmark: ≤ 5.0 FPS</span>
                   <span :style="`color: ${(gameBenchmarks?.categories?.game_performance?.combo_drop_fps || 4.0) > 5 ? 'var(--fail)' : 'var(--pass)'}`" x-text="(gameBenchmarks?.categories?.game_performance?.combo_drop_fps || 4.0) > 5 ? 'STUTTER RISK' : 'SMOOTH'"></span>
                 </div>
               </div>
 
               <!-- Meter 3: Game Memory Leak Coefficient (R_leak) -->
-              <div style="background: rgba(15, 23, 42, 0.6); border: 1px solid var(--border); border-radius: 10px; padding: 14px;">
-                <div style="display: flex; justify-content: space-between; font-size: 11px; color: var(--text-dim); margin-bottom: 6px;">
+              <div class="telemetry-meter">
+                <div class="tm-head">
                   <span>GAME RAM LEAK (R_leak)</span>
-                  <strong style="color: #38bdf8;" x-text="(gameBenchmarks?.categories?.game_performance?.r_leak_mb_hr || 2.5) + ' MB/hr'"></strong>
+                  <strong class="tm-val" x-text="(gameBenchmarks?.categories?.game_performance?.r_leak_mb_hr || 2.5) + ' MB/hr'"></strong>
                 </div>
-                <div style="width: 100%; height: 6px; background: var(--bg-main); border-radius: 3px; overflow: hidden; margin-bottom: 8px;">
-                  <div style="height: 100%; transition: width 0.3s ease;" :style="`width: ${Math.min(100, ((gameBenchmarks?.categories?.game_performance?.r_leak_mb_hr || 2.5) / 15) * 100)}%; background: ${(gameBenchmarks?.categories?.game_performance?.r_leak_mb_hr || 2.5) >= 15 ? 'var(--fail)' : 'var(--pass)'};`"></div>
+                <div class="tm-track">
+                  <div class="tm-fill" :style="`width: ${Math.min(100, ((gameBenchmarks?.categories?.game_performance?.r_leak_mb_hr || 2.5) / 15) * 100)}%; background: ${(gameBenchmarks?.categories?.game_performance?.r_leak_mb_hr || 2.5) >= 15 ? 'var(--fail)' : 'var(--pass)'};`"></div>
                 </div>
-                <div style="display: flex; justify-content: space-between; font-size: 10px;">
+                <div class="tm-foot">
                   <span>Benchmark: < 15 MB/hr</span>
                   <span :style="`color: ${(gameBenchmarks?.categories?.game_performance?.r_leak_mb_hr || 2.5) >= 15 ? 'var(--fail)' : 'var(--pass)'}`" x-text="(gameBenchmarks?.categories?.game_performance?.r_leak_mb_hr || 2.5) >= 15 ? 'LEAK DETECTED' : 'STABLE'"></span>
                 </div>
               </div>
 
               <!-- Meter 4: Airtest OpenCV Match Time (T_match) -->
-              <div style="background: rgba(15, 23, 42, 0.6); border: 1px solid var(--border); border-radius: 10px; padding: 14px;">
-                <div style="display: flex; justify-content: space-between; font-size: 11px; color: var(--text-dim); margin-bottom: 6px;">
+              <div class="telemetry-meter">
+                <div class="tm-head">
                   <span>CV MATCH TIME (T_match)</span>
-                  <strong style="color: #38bdf8;" x-text="(gameBenchmarks?.categories?.script_quality?.t_match_ms || 145) + ' ms'"></strong>
+                  <strong class="tm-val" x-text="(gameBenchmarks?.categories?.script_quality?.t_match_ms || 145) + ' ms'"></strong>
                 </div>
-                <div style="width: 100%; height: 6px; background: var(--bg-main); border-radius: 3px; overflow: hidden; margin-bottom: 8px;">
-                  <div style="height: 100%; transition: width 0.3s ease;" :style="`width: ${Math.min(100, ((gameBenchmarks?.categories?.script_quality?.t_match_ms || 145) / 200) * 100)}%; background: ${(gameBenchmarks?.categories?.script_quality?.t_match_ms || 145) >= 200 ? 'var(--warn)' : 'var(--pass)'};`"></div>
+                <div class="tm-track">
+                  <div class="tm-fill" :style="`width: ${Math.min(100, ((gameBenchmarks?.categories?.script_quality?.t_match_ms || 145) / 200) * 100)}%; background: ${(gameBenchmarks?.categories?.script_quality?.t_match_ms || 145) >= 200 ? 'var(--warn)' : 'var(--pass)'};`"></div>
                 </div>
-                <div style="display: flex; justify-content: space-between; font-size: 10px;">
+                <div class="tm-foot">
                   <span>Benchmark: < 200 ms</span>
                   <span :style="`color: ${(gameBenchmarks?.categories?.script_quality?.t_match_ms || 145) >= 200 ? 'var(--warn)' : 'var(--pass)'}`" x-text="(gameBenchmarks?.categories?.script_quality?.t_match_ms || 145) >= 200 ? 'SLOW SCAN' : 'FAST'"></span>
                 </div>
