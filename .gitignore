@@ -8,3 +8,16 @@ __pycache__/
 .no-update
 
 tests_mirror/
+
+# Generated knowledge graph (rebuild with: graphify update .)
+graphify-out/
+
+# Tool/IDE caches
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+
+# AI assistant configs (per-machine)
+.claude/
+.opencode/
+.superpowers/

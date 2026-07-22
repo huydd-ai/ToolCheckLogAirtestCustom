@@ -14,6 +14,8 @@ import glob as _glob
 import sys
 from pathlib import Path
 
+from parallel_utils import list_devices, partition
+
 # Add project root to path so pixon module can be imported,
 # and dagster dir so sibling helpers (ScrcpyRecorder) resolve.
 _dagster_dir = Path(__file__).resolve().parent
