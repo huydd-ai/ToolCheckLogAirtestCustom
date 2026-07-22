@@ -5,9 +5,23 @@ from datetime import datetime
 from pathlib import Path
 
 from dagster.reports.report_data import RunEntry, compute_metrics
-from dagster.benchmark import compute_benchmarks, evaluate_game_benchmarks
+from dagster.benchmark import compute_benchmarks, evaluate_game_benchmarks, metric, _METRICS, _resolve_config
 from dagster.capture.performance_probe import PerformanceProbe
 from dagster.device.device_manager import DeviceManager, DeviceCaps
+
+
+def test_metric_decorator_registers():
+    @metric("unit_test_probe")
+    def _probe(runs, ctx, results, params):
+        return 1.0
+
+    assert _METRICS["unit_test_probe"] is _probe
+    assert _resolve_config(None)["modes"][0] == "normal"
+
+
+def test_resolve_config_passthrough_dict():
+    cfg = {"modes": ["x"], "categories": []}
+    assert _resolve_config(cfg) is cfg
 
 
 def test_evaluate_game_benchmarks_pass():

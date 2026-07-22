@@ -12,6 +12,37 @@ sys.path.insert(0, str(_project_root))
 
 from dagster.reports.report_data import scan_runs, RunEntry  # noqa: E402
 
+import json
+from functools import lru_cache
+from typing import Callable
+
+_CONFIG_PATH = _dagster_dir / "benchmark_config.json"
+
+_METRICS: dict[str, Callable] = {}
+
+
+def metric(name: str):
+    """Register a computor fn under `name` in the metric registry."""
+    def deco(fn):
+        _METRICS[name] = fn
+        return fn
+    return deco
+
+
+@lru_cache(maxsize=8)
+def _load_config_file(path: str) -> dict:
+    with open(path, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def _resolve_config(config=None) -> dict:
+    """Return a config dict from a dict, a path, or the default file (None)."""
+    if config is None:
+        return _load_config_file(str(_CONFIG_PATH))
+    if isinstance(config, dict):
+        return config
+    return _load_config_file(str(config))
+
 
 def compute_benchmarks(
     runs: list[RunEntry],

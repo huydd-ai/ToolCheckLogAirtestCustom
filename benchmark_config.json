@@ -1,0 +1,73 @@
+{
+  "modes": ["normal", "aggressive"],
+  "categories": [
+    {
+      "id": "game_performance",
+      "label": "Game Performance",
+      "metrics": [
+        {"id": "avg_fps", "label": "Avg FPS", "unit": "FPS", "compute": "avg_fps",
+         "direction": "min", "thresholds": {"normal": 50.0, "aggressive": 55.0},
+         "hard": 45.0, "trigger": "OPTIMIZE_GRAPHICS"},
+        {"id": "combo_drop_fps", "label": "Combo FPS Drop", "unit": "FPS", "compute": "combo_drop_fps",
+         "direction": "max", "thresholds": {"normal": 5.0, "aggressive": 3.0},
+         "hard": 10.0, "trigger": "HALT_BUILD"},
+        {"id": "r_leak_mb_hr", "label": "Memory Leak", "unit": "MB/hr", "compute": "r_leak",
+         "direction": "max", "thresholds": {"normal": 15.0, "aggressive": 10.0},
+         "trigger": "HALT_BUILD"},
+        {"id": "a_fail_pct", "label": "Asset Load Failure", "unit": "%", "compute": "a_fail_pct",
+         "direction": "eq", "thresholds": {"normal": 0.0, "aggressive": 0.0},
+         "trigger": "HALT_BUILD"}
+      ]
+    },
+    {
+      "id": "emulator_stability",
+      "label": "Emulator Stability",
+      "metrics": [
+        {"id": "r_crash_pct", "label": "Crash / ANR Rate", "unit": "%", "compute": "r_crash_pct",
+         "direction": "max", "thresholds": {"normal": 0.5, "aggressive": 0.2},
+         "trigger": "HALT_BUILD"},
+        {"id": "r_softlock_pct", "label": "Automation Softlock", "unit": "%", "compute": "r_softlock_pct",
+         "direction": "max", "thresholds": {"normal": 1.0, "aggressive": 0.5},
+         "trigger": "REFACTOR_SCRIPTS"},
+        {"id": "delta_ram_emu_mb_hr", "label": "Emulator RAM Leak", "unit": "MB/hr", "compute": "delta_ram_emu",
+         "direction": "max", "thresholds": {"normal": 50.0, "aggressive": 30.0},
+         "trigger": "RESTART_EMULATOR"},
+        {"id": "e_scaling_pct", "label": "Multi-Instance Scaling", "unit": "%", "compute": "e_scaling",
+         "direction": "min", "thresholds": {"normal": 85.0, "aggressive": 90.0},
+         "trigger": "SCALE_INFRASTRUCTURE"}
+      ]
+    },
+    {
+      "id": "script_quality",
+      "label": "Airtest Script Quality",
+      "metrics": [
+        {"id": "t_match_ms", "label": "Image Match Time", "unit": "ms", "compute": "probe_avg",
+         "params": {"field": "cv_match_ms", "round": 1},
+         "direction": "max", "thresholds": {"normal": 200.0, "aggressive": 150.0},
+         "trigger": "OPTIMIZE_SCRIPT"},
+        {"id": "r_cv_error_pct", "label": "CV Identification Error", "unit": "%", "compute": "probe_avg",
+         "params": {"field": "cv_error_pct", "round": 2},
+         "direction": "eq", "thresholds": {"normal": 0.0, "aggressive": 0.0},
+         "trigger": "RECALIBRATE_CV"},
+        {"id": "t_input_latency_ms", "label": "Input Latency", "unit": "ms", "compute": "probe_avg",
+         "params": {"field": "input_latency_ms", "round": 1},
+         "direction": "max", "thresholds": {"normal": 120.0, "aggressive": 80.0},
+         "trigger": "OPTIMIZE_ADB"},
+        {"id": "c_critical_pct", "label": "Critical Path Coverage", "unit": "%", "compute": "probe_avg",
+         "params": {"field": "critical_path_pct", "round": 1},
+         "direction": "eq", "thresholds": {"normal": 100.0, "aggressive": 100.0},
+         "trigger": "AUDIT_COVERAGE"}
+      ]
+    },
+    {
+      "id": "infrastructure",
+      "label": "Active Test Farm Hardware",
+      "metrics": [
+        {"id": "unique_devices", "label": "Active Devices", "unit": "", "compute": "unique_devices",
+         "direction": "min", "thresholds": {"normal": 1, "aggressive": 1}},
+        {"id": "unique_chipsets", "label": "Active Chipsets", "unit": "", "compute": "unique_chipsets",
+         "direction": "min", "thresholds": {"normal": 1, "aggressive": 1}}
+      ]
+    }
+  ]
+}
