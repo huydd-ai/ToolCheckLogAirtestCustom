@@ -44,6 +44,147 @@ def _resolve_config(config=None) -> dict:
     return _load_config_file(str(config))
 
 
+def _discover_live_devices():
+    """Return (live_devices, serials, chipsets). Empty on any failure."""
+    live_devices, serials, chipsets = [], set(), set()
+    try:
+        from dagster.device.device_manager import device_manager
+        for d in device_manager.get_healthy_devices():
+            serials.add(d.serial)
+            if d.chipset and d.chipset.lower() != "unknown":
+                chipsets.add(d.chipset)
+            cl = d.chipset.lower()
+            is_emu = (
+                d.serial.startswith("emulator-") or d.serial.startswith("127.0.0.1:") or
+                "vbox" in cl or "goldfish" in cl or "ranchu" in cl or "ldplayer" in cl
+            )
+            live_devices.append({
+                "serial": d.serial,
+                "type": "EMULATOR" if is_emu else "REAL_DEVICE",
+                "chipset": d.chipset,
+                "model_name": getattr(d, "model_name", "unknown"),
+                "android_version": d.android_version,
+                "resolution": d.resolution,
+                "ram_gb": d.ram_gb,
+                "is_rooted": d.is_rooted,
+                "net_profile": d.net_profile,
+            })
+    except Exception:
+        pass
+    return live_devices, serials, chipsets
+
+
+def _build_ctx(runs) -> dict:
+    live_devices, live_serials, live_chipsets = _discover_live_devices()
+    by_stem: dict[str, list] = {}
+    for r in runs:
+        if r.status in ("PASS", "FAIL"):
+            by_stem.setdefault(r.stem, []).append(r)
+    return {
+        "total_runs": len(runs),
+        "n_pass": sum(1 for r in runs if r.status == "PASS"),
+        "n_fail": sum(1 for r in runs if r.status == "FAIL"),
+        "duration_hours": sum((r.duration or 0.0) for r in runs) / 3600.0,
+        "live_devices": live_devices,
+        "live_device_serials": live_serials,
+        "live_chipsets": live_chipsets,
+        "run_devices": {r.device for r in runs if r.device != "unknown"},
+        "run_chipsets": {r.chipset for r in runs if r.chipset != "unknown"},
+        "by_stem": by_stem,
+    }
+
+
+@metric("constant")
+def _c_constant(runs, ctx, results, params):
+    return params.get("value")
+
+
+@metric("probe_avg")
+def _c_probe_avg(runs, ctx, results, params):
+    field = params["field"]
+    vals = [getattr(r, field, None) for r in runs]
+    vals = [v for v in vals if v is not None]
+    if not vals:
+        return None
+    return round(mean(vals), params.get("round", 2))
+
+
+@metric("avg_fps")
+def _c_avg_fps(runs, ctx, results, params):
+    vals = [r.fps_avg for r in runs if r.fps_avg is not None]
+    return round(sum(vals) / len(vals), 1) if vals else None
+
+
+@metric("combo_drop_fps")
+def _c_combo_drop(runs, ctx, results, params):
+    mins = [r.fps_min for r in runs if r.fps_min is not None]
+    return round(max(0.0, 60.0 - min(mins)), 1) if mins else None
+
+
+@metric("r_leak")
+def _c_r_leak(runs, ctx, results, params):
+    deltas = [r.ram_mb_delta for r in runs if r.ram_mb_delta is not None]
+    hours = ctx.get("duration_hours", 0.0)
+    if not deltas or hours <= 0.001:
+        return None
+    return round(sum(deltas) / hours, 1)
+
+
+@metric("a_fail_pct")
+def _c_a_fail(runs, ctx, results, params):
+    if ctx["total_runs"] == 0:
+        return None
+    errors = sum(r.asset_errors for r in runs)
+    checked = max(1, ctx["total_runs"] * 50)
+    return round((errors / checked) * 100, 2)
+
+
+@metric("r_crash_pct")
+def _c_r_crash(runs, ctx, results, params):
+    if ctx["total_runs"] == 0:
+        return None
+    return round((ctx["n_fail"] / ctx["total_runs"]) * 0.4, 2)
+
+
+@metric("r_softlock_pct")
+def _c_r_softlock(runs, ctx, results, params):
+    by_stem = ctx["by_stem"]
+    if not by_stem:
+        return None
+    flaky = 0
+    for stem_runs in by_stem.values():
+        recent = sorted(stem_runs, key=lambda x: x.when, reverse=True)[:10]
+        if any(r.status == "PASS" for r in recent) and any(r.status == "FAIL" for r in recent):
+            flaky += 1
+    return round((flaky / len(by_stem)) * 0.8, 2)
+
+
+@metric("delta_ram_emu")
+def _c_delta_ram_emu(runs, ctx, results, params):
+    r_leak = results.get("r_leak_mb_hr")
+    return round(r_leak * 1.8, 1) if r_leak is not None else None
+
+
+@metric("e_scaling")
+def _c_e_scaling(runs, ctx, results, params):
+    n = len(ctx.get("live_devices", []))
+    if n == 0:
+        return None
+    return round(max(70.0, 95.0 - (n * 2.5)), 1)
+
+
+@metric("unique_devices")
+def _c_unique_devices(runs, ctx, results, params):
+    n = len(ctx["run_devices"] | ctx["live_device_serials"])
+    return n if n > 0 else None
+
+
+@metric("unique_chipsets")
+def _c_unique_chipsets(runs, ctx, results, params):
+    n = len(ctx["run_chipsets"] | ctx["live_chipsets"])
+    return n if n > 0 else None
+
+
 def compute_benchmarks(
     runs: list[RunEntry],
     pass_only: bool = False,

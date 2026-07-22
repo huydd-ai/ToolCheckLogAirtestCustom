@@ -1,11 +1,11 @@
 """Unit tests for dagster game testing benchmark rule engine, probe, and metrics."""
 
 import json
-from datetime import datetime
+from datetime import datetime as _dt
 from pathlib import Path
 
 from dagster.reports.report_data import RunEntry, compute_metrics
-from dagster.benchmark import compute_benchmarks, evaluate_game_benchmarks, metric, _METRICS, _resolve_config
+from dagster.benchmark import compute_benchmarks, evaluate_game_benchmarks, metric, _METRICS, _resolve_config, _build_ctx
 from dagster.capture.performance_probe import PerformanceProbe
 from dagster.device.device_manager import DeviceManager, DeviceCaps
 
@@ -25,7 +25,7 @@ def test_resolve_config_passthrough_dict():
 
 
 def test_evaluate_game_benchmarks_pass():
-    now = datetime.now()
+    now = _dt.now()
     runs = [
         RunEntry(
             stem="tc01_login",
@@ -74,7 +74,7 @@ def test_evaluate_game_benchmarks_pass():
 
 
 def test_all_12_puzzle_game_benchmark_formulas():
-    now = datetime.now()
+    now = _dt.now()
     runs = [
         RunEntry(
             stem="tc01_smoke",
@@ -122,7 +122,7 @@ def test_all_12_puzzle_game_benchmark_formulas():
 
 
 def test_evaluate_game_benchmarks_action_triggers():
-    now = datetime.now()
+    now = _dt.now()
     runs = [
         RunEntry(
             stem="tc01_laggy",
@@ -165,7 +165,7 @@ def test_evaluate_game_benchmarks_action_triggers():
 
 
 def test_evaluate_game_benchmarks_aggressive_mode():
-    now = datetime.now()
+    now = _dt.now()
     runs = [
         RunEntry(
             stem="tc01_minor_drop",
@@ -231,3 +231,39 @@ def test_device_manager_network_emulation():
     success = dm.set_network_emulation_profile("emulator-5554", "3G")
     assert success is True
     assert dm.devices["emulator-5554"].net_profile == "3G"
+
+
+def _ctx(runs):
+    # minimal ctx builder mirroring engine (Task 3 builds the real one)
+    return _build_ctx(runs)
+
+
+def test_computor_avg_fps_and_na():
+    now = _dt.now()
+    r_ok = RunEntry(stem="a", when=now, status="PASS", folder="a", report_href="h",
+                    device="d1", suite="S", duration=10.0, fps_avg=58.0, fps_min=55.0,
+                    ram_mb_delta=1.0, asset_errors=0, chipset="C")
+    r_nofps = RunEntry(stem="b", when=now, status="PASS", folder="b", report_href="h",
+                       device="d1", suite="S", duration=10.0, fps_avg=None, fps_min=None,
+                       ram_mb_delta=1.0, asset_errors=0, chipset="C")
+    assert _METRICS["avg_fps"]([r_ok], _ctx([r_ok]), {}, {}) == 58.0
+    assert _METRICS["avg_fps"]([r_nofps], _ctx([r_nofps]), {}, {}) is None
+
+
+def test_computor_delta_ram_reads_results():
+    results = {"r_leak_mb_hr": 10.0}
+    assert _METRICS["delta_ram_emu"]([], {}, results, {}) == 18.0
+    assert _METRICS["delta_ram_emu"]([], {}, {"r_leak_mb_hr": None}, {}) is None
+
+
+def test_computor_probe_avg_na_when_field_absent():
+    now = _dt.now()
+    r = RunEntry(stem="a", when=now, status="PASS", folder="a", report_href="h",
+                 device="d1", suite="S", duration=10.0, fps_avg=58.0, fps_min=55.0,
+                 ram_mb_delta=1.0, asset_errors=0, chipset="C")
+    # cv_match_ms not a RunEntry field -> N/A
+    assert _METRICS["probe_avg"]([r], _ctx([r]), {}, {"field": "cv_match_ms", "round": 1}) is None
+
+
+def test_computor_constant():
+    assert _METRICS["constant"]([], {}, {}, {"value": 42.0}) == 42.0
