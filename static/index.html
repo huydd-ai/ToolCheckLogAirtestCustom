@@ -348,7 +348,7 @@
                               x-text="m.value === null ? 'N/A' : (m.value + (m.unit ? ' ' + m.unit : ''))"></strong>
                       <span class="bench-metric-flag"
                             x-text="m.passed === null ? '—' : (m.passed ? 'PASS' : 'BREACH')"
-                            :style="`color: ${m.passed === null ? 'var(--muted)' : (m.passed ? 'var(--pass)' : 'var(--warn)')}`"></span>
+                            :style="`color: ${m.passed === null ? 'var(--text-dim)' : (m.passed ? 'var(--pass)' : 'var(--warn)')}`"></span>
                       <small class="bench-metric-thr" x-show="m.threshold !== null"
                              x-text="`${m.direction === 'min' ? '≥' : m.direction === 'max' ? '≤' : '='} ${m.threshold}${m.unit ? ' ' + m.unit : ''}`"></small>
                     </div>
