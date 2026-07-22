@@ -175,3 +175,14 @@ def test_computor_probe_avg_na_when_field_absent():
 
 def test_computor_constant():
     assert _METRICS["constant"]([], {}, {}, {"value": 42.0}) == 42.0
+
+
+def test_print_table_generic_na(capsys):
+    from dagster.benchmark import print_benchmark_table
+    runs = [_run("tc01", "PASS", 58.0, 55.0, 1.0)]
+    gb = evaluate_game_benchmarks(runs)
+    print_benchmark_table({}, gb)
+    out = capsys.readouterr().out
+    assert "Game Performance" in out
+    assert "Avg FPS" in out
+    assert "N/A" in out   # script_quality metrics render N/A

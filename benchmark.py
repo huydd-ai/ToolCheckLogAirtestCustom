@@ -357,41 +357,48 @@ def evaluate_game_benchmarks(runs, mode=None, config=None) -> dict:
 
 def print_benchmark_table(benchmarks: dict[str, dict], game_benchmarks: dict | None = None):
     """Print a clean, formatted table of benchmark results to stdout."""
-    if not benchmarks:
+    if not benchmarks and not game_benchmarks:
         print("No benchmark data matching criteria.")
         return
 
-    header = (
-        f"{'Test Case':<36} | {'Suite':<12} | {'Runs':<5} | {'Pass %':<6} | {'Score':<6} | "
-        f"{'Avg (s)':<7} | {'Med (s)':<7} | {'P90 (s)':<7} | {'Min (s)':<7} | {'Max (s)':<7}"
-    )
-    print(f"\n{header}")
-    print("-" * len(header))
+    if benchmarks:
+        header = (
+            f"{'Test Case':<36} | {'Suite':<12} | {'Runs':<5} | {'Pass %':<6} | {'Score':<6} | "
+            f"{'Avg (s)':<7} | {'Med (s)':<7} | {'P90 (s)':<7} | {'Min (s)':<7} | {'Max (s)':<7}"
+        )
+        print(f"\n{header}")
+        print("-" * len(header))
 
-    for _, b in sorted(benchmarks.items()):
+        for _, b in sorted(benchmarks.items()):
+            print(
+                f"{b['stem']:<36} | {b['suite']:<12} | {b['runs']:<5} | {b['pass_rate']:<6.1f} | {b['score']:<6.1f} | "
+                f"{b['avg']:<7.2f} | {b['median']:<7.2f} | {b['p90']:<7.2f} | {b['min']:<7.2f} | {b['max']:<7.2f}"
+            )
+
+        all_avgs = [b["avg"] for b in benchmarks.values()]
+        all_scores = [b["score"] for b in benchmarks.values()]
+        overall_avg = mean(all_avgs)
+        overall_score = mean(all_scores)
+
+        print("-" * len(header))
         print(
-            f"{b['stem']:<36} | {b['suite']:<12} | {b['runs']:<5} | {b['pass_rate']:<6.1f} | {b['score']:<6.1f} | "
-            f"{b['avg']:<7.2f} | {b['median']:<7.2f} | {b['p90']:<7.2f} | {b['min']:<7.2f} | {b['max']:<7.2f}"
+            f"Total Test Cases: {len(benchmarks)} | "
+            f"Overall Avg Runtime: {overall_avg:.2f}s | "
+            f"Overall Benchmark Score: {overall_score:.1f}/100"
         )
 
-    all_avgs = [b["avg"] for b in benchmarks.values()]
-    all_scores = [b["score"] for b in benchmarks.values()]
-    overall_avg = mean(all_avgs)
-    overall_score = mean(all_scores)
-
-    print("-" * len(header))
-    print(
-        f"Total Test Cases: {len(benchmarks)} | "
-        f"Overall Avg Runtime: {overall_avg:.2f}s | "
-        f"Overall Benchmark Score: {overall_score:.1f}/100"
-    )
-
     if game_benchmarks:
-        print("\n--- Game Testing Benchmark Matrix Evaluation ---")
-        cats = game_benchmarks.get("categories", {})
-        for cat_name, cat_data in cats.items():
-            st = cat_data.get("status", "UNKNOWN")
-            print(f"  [{st}] {cat_name.upper()}: {cat_data}")
+        print(f"\n--- Game Testing Benchmark Matrix ({game_benchmarks.get('mode', 'normal')}) ---")
+        for cat in game_benchmarks.get("categories", {}).values():
+            print(f"\n  [{cat['status']}] {cat['label']}")
+            for m in cat["metrics"]:
+                val = "N/A" if m["value"] is None else f"{m['value']}{(' ' + m['unit']) if m['unit'] else ''}"
+                if m["passed"] is None:
+                    mark = "—"
+                else:
+                    mark = "PASS" if m["passed"] else "BREACH"
+                thr = "" if m["threshold"] is None else f"  ({_OP[m['direction']]} {m['threshold']})"
+                print(f"      {mark:<6} {m['label']:<28} {val}{thr}")
 
         triggers = game_benchmarks.get("action_triggers", [])
         if triggers:
@@ -420,6 +427,10 @@ def main():
         default=None,
         help="Filter benchmarks by test suite name.",
     )
+    parser.add_argument("--config", type=str, default=None,
+                        help="Path to benchmark config JSON (default: benchmark_config.json).")
+    parser.add_argument("--mode", type=str, default=None,
+                        help="Threshold mode/profile name (default: first configured mode).")
     args = parser.parse_args()
 
     report_root = Path(args.root).resolve()
@@ -435,7 +446,7 @@ def main():
         return
 
     benchmarks = compute_benchmarks(runs, pass_only=args.pass_only, suite_filter=args.suite)
-    game_benchmarks = evaluate_game_benchmarks(runs)
+    game_benchmarks = evaluate_game_benchmarks(runs, mode=args.mode, config=args.config)
     print_benchmark_table(benchmarks, game_benchmarks)
 
 
