@@ -713,6 +713,10 @@ li:hover {
   color: var(--text-main);
 }
 
+.bench-metric-row { display: flex; align-items: baseline; gap: 8px; justify-content: space-between; padding: 2px 0; }
+.bench-metric-label { flex: 1; }
+.bench-metric-thr { opacity: 0.6; }
+
 /* Status Pill Helpers */
 .status-pill.pass {
   background: var(--pass-bg);

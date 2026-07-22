@@ -304,71 +304,6 @@
               </div>
             </div>
 
-            <!-- Task Manager Live Hardware Parameters Grid -->
-            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; margin-bottom: 16px;">
-              
-              <!-- Meter 1: Average FPS (Avg FPS) -->
-              <div style="background: rgba(15, 23, 42, 0.6); border: 1px solid var(--border); border-radius: 10px; padding: 14px;">
-                <div style="display: flex; justify-content: space-between; font-size: 11px; color: var(--text-dim); margin-bottom: 6px;">
-                  <span>AVERAGE FPS (Avg FPS)</span>
-                  <strong style="color: #38bdf8;" x-text="(gameBenchmarks?.categories?.game_performance?.avg_fps || 58.5) + ' FPS'"></strong>
-                </div>
-                <div style="width: 100%; height: 6px; background: var(--bg-main); border-radius: 3px; overflow: hidden; margin-bottom: 8px;">
-                  <div style="height: 100%; transition: width 0.3s ease;" :style="`width: ${Math.min(100, ((gameBenchmarks?.categories?.game_performance?.avg_fps || 58.5) / 60) * 100)}%; background: ${(gameBenchmarks?.categories?.game_performance?.avg_fps || 58.5) < 55 ? 'var(--warn)' : 'var(--pass)'};`"></div>
-                </div>
-                <div style="display: flex; justify-content: space-between; font-size: 10px;">
-                  <span>Benchmark: ≥ 55 FPS</span>
-                  <span :style="`color: ${(gameBenchmarks?.categories?.game_performance?.avg_fps || 58.5) >= 55 ? 'var(--pass)' : 'var(--warn)'}`" x-text="(gameBenchmarks?.categories?.game_performance?.avg_fps || 58.5) >= 55 ? 'PASS' : 'SUB-OPTIMAL'"></span>
-                </div>
-              </div>
-
-              <!-- Meter 2: Combo FPS Drop Delta (ΔFPS_combo) -->
-              <div style="background: rgba(15, 23, 42, 0.6); border: 1px solid var(--border); border-radius: 10px; padding: 14px;">
-                <div style="display: flex; justify-content: space-between; font-size: 11px; color: var(--text-dim); margin-bottom: 6px;">
-                  <span>COMBO FPS DROP (ΔFPS_combo)</span>
-                  <strong style="color: #38bdf8;" x-text="(gameBenchmarks?.categories?.game_performance?.combo_drop_fps || 4.0) + ' FPS'"></strong>
-                </div>
-                <div style="width: 100%; height: 6px; background: var(--bg-main); border-radius: 3px; overflow: hidden; margin-bottom: 8px;">
-                  <div style="height: 100%; transition: width 0.3s ease;" :style="`width: ${Math.min(100, ((gameBenchmarks?.categories?.game_performance?.combo_drop_fps || 4.0) / 10) * 100)}%; background: ${(gameBenchmarks?.categories?.game_performance?.combo_drop_fps || 4.0) > 5 ? 'var(--fail)' : 'var(--pass)'};`"></div>
-                </div>
-                <div style="display: flex; justify-content: space-between; font-size: 10px;">
-                  <span>Benchmark: ≤ 5.0 FPS</span>
-                  <span :style="`color: ${(gameBenchmarks?.categories?.game_performance?.combo_drop_fps || 4.0) > 5 ? 'var(--fail)' : 'var(--pass)'}`" x-text="(gameBenchmarks?.categories?.game_performance?.combo_drop_fps || 4.0) > 5 ? 'STUTTER RISK' : 'SMOOTH'"></span>
-                </div>
-              </div>
-
-              <!-- Meter 3: Game Memory Leak Coefficient (R_leak) -->
-              <div style="background: rgba(15, 23, 42, 0.6); border: 1px solid var(--border); border-radius: 10px; padding: 14px;">
-                <div style="display: flex; justify-content: space-between; font-size: 11px; color: var(--text-dim); margin-bottom: 6px;">
-                  <span>GAME RAM LEAK (R_leak)</span>
-                  <strong style="color: #38bdf8;" x-text="(gameBenchmarks?.categories?.game_performance?.r_leak_mb_hr || 2.5) + ' MB/hr'"></strong>
-                </div>
-                <div style="width: 100%; height: 6px; background: var(--bg-main); border-radius: 3px; overflow: hidden; margin-bottom: 8px;">
-                  <div style="height: 100%; transition: width 0.3s ease;" :style="`width: ${Math.min(100, ((gameBenchmarks?.categories?.game_performance?.r_leak_mb_hr || 2.5) / 15) * 100)}%; background: ${(gameBenchmarks?.categories?.game_performance?.r_leak_mb_hr || 2.5) >= 15 ? 'var(--fail)' : 'var(--pass)'};`"></div>
-                </div>
-                <div style="display: flex; justify-content: space-between; font-size: 10px;">
-                  <span>Benchmark: < 15 MB/hr</span>
-                  <span :style="`color: ${(gameBenchmarks?.categories?.game_performance?.r_leak_mb_hr || 2.5) >= 15 ? 'var(--fail)' : 'var(--pass)'}`" x-text="(gameBenchmarks?.categories?.game_performance?.r_leak_mb_hr || 2.5) >= 15 ? 'LEAK DETECTED' : 'STABLE'"></span>
-                </div>
-              </div>
-
-              <!-- Meter 4: Airtest OpenCV Match Time (T_match) -->
-              <div style="background: rgba(15, 23, 42, 0.6); border: 1px solid var(--border); border-radius: 10px; padding: 14px;">
-                <div style="display: flex; justify-content: space-between; font-size: 11px; color: var(--text-dim); margin-bottom: 6px;">
-                  <span>CV MATCH TIME (T_match)</span>
-                  <strong style="color: #38bdf8;" x-text="(gameBenchmarks?.categories?.script_quality?.t_match_ms || 145) + ' ms'"></strong>
-                </div>
-                <div style="width: 100%; height: 6px; background: var(--bg-main); border-radius: 3px; overflow: hidden; margin-bottom: 8px;">
-                  <div style="height: 100%; transition: width 0.3s ease;" :style="`width: ${Math.min(100, ((gameBenchmarks?.categories?.script_quality?.t_match_ms || 145) / 200) * 100)}%; background: ${(gameBenchmarks?.categories?.script_quality?.t_match_ms || 145) >= 200 ? 'var(--warn)' : 'var(--pass)'};`"></div>
-                </div>
-                <div style="display: flex; justify-content: space-between; font-size: 10px;">
-                  <span>Benchmark: < 200 ms</span>
-                  <span :style="`color: ${(gameBenchmarks?.categories?.script_quality?.t_match_ms || 145) >= 200 ? 'var(--warn)' : 'var(--pass)'}`" x-text="(gameBenchmarks?.categories?.script_quality?.t_match_ms || 145) >= 200 ? 'SLOW SCAN' : 'FAST'"></span>
-                </div>
-              </div>
-
-            </div>
-
             <!-- Connected Hardware Devices Specs Table -->
             <div style="background: rgba(15, 23, 42, 0.4); border: 1px solid var(--border); border-radius: 8px; padding: 12px;">
               <div style="font-weight: 700; font-size: 11px; color: var(--text-dim); margin-bottom: 8px; letter-spacing: 0.5px;">DISCOVERED TEST FARM HARDWARE INSTANCES</div>
@@ -397,66 +332,30 @@
 
           </div>
 
-          <!-- 4 Category Matrix Grid (Airtest Puzzle Game Benchmarks) -->
+          <!-- Category Matrix Grid (generic, driven by backend game_benchmarks payload) -->
           <div class="bench-matrix-grid" x-show="gameBenchmarks?.categories">
-            <!-- I. Nhóm Hiệu Năng Game trên Giả Lập -->
-            <div class="bench-card glass-panel" :class="gameBenchmarks?.categories?.game_performance?.status?.toLowerCase() || 'pass'">
-              <div class="bench-card-header">
-                <span class="bench-card-title">I. Game Performance</span>
-                <span class="status-pill" :class="gameBenchmarks?.categories?.game_performance?.status?.toLowerCase() || 'pass'" x-text="gameBenchmarks?.categories?.game_performance?.status || 'PASS'"></span>
+            <template x-for="(cat, cid) in gameBenchmarks.categories" :key="cid">
+              <div class="bench-card glass-panel" :class="cat.status.toLowerCase()">
+                <div class="bench-card-header">
+                  <h3 x-text="cat.label"></h3>
+                  <span class="status-pill" :class="cat.status.toLowerCase()" x-text="cat.status"></span>
+                </div>
+                <div class="bench-card-metrics">
+                  <template x-for="m in cat.metrics" :key="m.id">
+                    <div class="bench-metric-row">
+                      <span class="bench-metric-label" x-text="m.label"></span>
+                      <strong class="bench-metric-value"
+                              x-text="m.value === null ? 'N/A' : (m.value + (m.unit ? ' ' + m.unit : ''))"></strong>
+                      <span class="bench-metric-flag"
+                            x-text="m.passed === null ? '—' : (m.passed ? 'PASS' : 'BREACH')"
+                            :style="`color: ${m.passed === null ? 'var(--muted)' : (m.passed ? 'var(--pass)' : 'var(--warn)')}`"></span>
+                      <small class="bench-metric-thr" x-show="m.threshold !== null"
+                             x-text="`${m.direction === 'min' ? '≥' : m.direction === 'max' ? '≤' : '='} ${m.threshold}${m.unit ? ' ' + m.unit : ''}`"></small>
+                    </div>
+                  </template>
+                </div>
               </div>
-              <div class="bench-card-value" x-text="(gameBenchmarks?.categories?.game_performance?.avg_fps || 58.5) + ' FPS'"></div>
-              <div class="bench-card-details">
-                <div><span>Avg FPS:</span> <strong x-text="(gameBenchmarks?.categories?.game_performance?.avg_fps || 58.5) + ' FPS (≥ 55)'"></strong></div>
-                <div><span>ΔFPS_combo:</span> <strong x-text="(gameBenchmarks?.categories?.game_performance?.combo_drop_fps || 4.0) + ' FPS (≤ 5)'"></strong></div>
-                <div><span>R_leak (Game RAM):</span> <strong x-text="(gameBenchmarks?.categories?.game_performance?.r_leak_mb_hr || 2.5) + ' MB/hr (< 15)'"></strong></div>
-                <div><span>P_asset_fail:</span> <strong x-text="(gameBenchmarks?.categories?.game_performance?.a_fail_pct || 0) + '% (0%)'"></strong></div>
-              </div>
-            </div>
-
-            <!-- II. Nhóm Độ Ổn Định Hệ Thống & Giả Lập -->
-            <div class="bench-card glass-panel" :class="gameBenchmarks?.categories?.emulator_stability?.status?.toLowerCase() || 'pass'">
-              <div class="bench-card-header">
-                <span class="bench-card-title">II. Emulator Stability</span>
-                <span class="status-pill" :class="gameBenchmarks?.categories?.emulator_stability?.status?.toLowerCase() || 'pass'" x-text="gameBenchmarks?.categories?.emulator_stability?.status || 'PASS'"></span>
-              </div>
-              <div class="bench-card-value" x-text="(gameBenchmarks?.categories?.emulator_stability?.r_crash_pct || 0.0) + '% Crash'"></div>
-              <div class="bench-card-details">
-                <div><span>R_crash (Crash/ANR):</span> <strong x-text="(gameBenchmarks?.categories?.emulator_stability?.r_crash_pct || 0.0) + '% (< 0.5%)'"></strong></div>
-                <div><span>R_softlock:</span> <strong x-text="(gameBenchmarks?.categories?.emulator_stability?.r_softlock_pct || 0.0) + '% (< 1.0%)'"></strong></div>
-                <div><span>ΔRAM_Emu:</span> <strong x-text="(gameBenchmarks?.categories?.emulator_stability?.delta_ram_emu_mb_hr || 4.5) + ' MB/hr (< 50)'"></strong></div>
-                <div><span>E_scaling:</span> <strong x-text="(gameBenchmarks?.categories?.emulator_stability?.e_scaling_pct || 92.5) + '% (≥ 85%)'"></strong></div>
-              </div>
-            </div>
-
-            <!-- III. Nhóm Chất Lượng Script Airtest / Poco -->
-            <div class="bench-card glass-panel" :class="gameBenchmarks?.categories?.script_quality?.status?.toLowerCase() || 'pass'">
-              <div class="bench-card-header">
-                <span class="bench-card-title">III. Airtest / Poco Quality</span>
-                <span class="status-pill" :class="gameBenchmarks?.categories?.script_quality?.status?.toLowerCase() || 'pass'" x-text="gameBenchmarks?.categories?.script_quality?.status || 'PASS'"></span>
-              </div>
-              <div class="bench-card-value" x-text="(gameBenchmarks?.categories?.script_quality?.t_match_ms || 145) + ' ms'"></div>
-              <div class="bench-card-details">
-                <div><span>T_match (CV Scan):</span> <strong x-text="(gameBenchmarks?.categories?.script_quality?.t_match_ms || 145) + ' ms (< 200)'"></strong></div>
-                <div><span>R_CV_error:</span> <strong x-text="(gameBenchmarks?.categories?.script_quality?.r_cv_error_pct || 0) + '% (0%)'"></strong></div>
-                <div><span>T_latency (Input):</span> <strong x-text="(gameBenchmarks?.categories?.script_quality?.t_input_latency_ms || 85) + ' ms (< 120)'"></strong></div>
-                <div><span>C_critical:</span> <strong x-text="(gameBenchmarks?.categories?.script_quality?.c_critical_pct || 100) + '% (100%)'"></strong></div>
-              </div>
-            </div>
-
-            <!-- IV. Active Test Farm Hardware -->
-            <div class="bench-card glass-panel" :class="gameBenchmarks?.categories?.infrastructure?.status?.toLowerCase() || 'pass'">
-              <div class="bench-card-header">
-                <span class="bench-card-title">IV. Active Test Farm</span>
-                <span class="status-pill" :class="gameBenchmarks?.categories?.infrastructure?.status?.toLowerCase() || 'pass'" x-text="gameBenchmarks?.categories?.infrastructure?.status || 'PASS'"></span>
-              </div>
-              <div class="bench-card-value" x-text="(gameBenchmarks?.categories?.infrastructure?.unique_devices || 1) + ' Devices'"></div>
-              <div class="bench-card-details">
-                <div><span>Connected ADB:</span> <strong x-text="(gameBenchmarks?.live_devices?.length || 1) + ' Devices'"></strong></div>
-                <div><span>Active Chipsets:</span> <strong x-text="(gameBenchmarks?.categories?.infrastructure?.unique_chipsets || 1) + ' Profiles'"></strong></div>
-                <div><span>Framework:</span> <strong>Airtest + Poco</strong></div>
-              </div>
-            </div>
+            </template>
           </div>
 
           <!-- Action Triggers Alert Banner -->
