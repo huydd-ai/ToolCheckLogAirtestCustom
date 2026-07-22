@@ -24,176 +24,84 @@ def test_resolve_config_passthrough_dict():
     assert _resolve_config(cfg) is cfg
 
 
-def test_evaluate_game_benchmarks_pass():
-    now = _dt.now()
-    runs = [
-        RunEntry(
-            stem="tc01_login",
-            when=now,
-            status="PASS",
-            folder="tc01_login_20260721_120000",
-            report_href="href1",
-            device="dev1",
-            suite="Auth",
-            duration=10.0,
-            fps_avg=59.5,
-            fps_min=57.0,
-            ram_mb_peak=450.0,
-            ram_mb_delta=2.0,
-            asset_errors=0,
-            chipset="Snapdragon8Gen2",
-            net_profile="WiFi",
-        ),
-        RunEntry(
-            stem="tc02_gameplay",
-            when=now,
-            status="PASS",
-            folder="tc02_gameplay_20260721_120000",
-            report_href="href2",
-            device="dev1",
-            suite="Core",
-            duration=15.0,
-            fps_avg=58.0,
-            fps_min=55.0,
-            ram_mb_peak=600.0,
-            ram_mb_delta=5.0,
-            asset_errors=0,
-            chipset="Snapdragon8Gen2",
-            net_profile="WiFi",
-        ),
-    ]
-
-    bench_metrics = evaluate_game_benchmarks(runs)
-    cats = bench_metrics["categories"]
-
-    assert cats["performance"]["status"] == "PASS"
-    assert cats["pipeline"]["status"] == "PASS"
-    assert cats["suite_health"]["status"] == "PASS"
-    assert cats["infrastructure"]["status"] == "PASS"
-    assert len(bench_metrics["action_triggers"]) == 0
+def _run(stem, status, fps_avg, fps_min, ram_delta, asset_errors=0, dur=10.0, chip="Snap"):
+    return RunEntry(stem=stem, when=_dt.now(), status=status,
+                    folder=stem, report_href="h", device="d1", suite="S",
+                    duration=dur, fps_avg=fps_avg, fps_min=fps_min,
+                    ram_mb_peak=500.0, ram_mb_delta=ram_delta,
+                    asset_errors=asset_errors, chipset=chip)
 
 
-def test_all_12_puzzle_game_benchmark_formulas():
-    now = _dt.now()
-    runs = [
-        RunEntry(
-            stem="tc01_smoke",
-            when=now,
-            status="PASS",
-            folder="tc01_smoke_20260721_120000",
-            report_href="href1",
-            device="dev1",
-            suite="Smoke",
-            duration=30.0,
-            fps_avg=58.5,
-            fps_min=56.0,
-            ram_mb_peak=500.0,
-            ram_mb_delta=0.0,
-            asset_errors=0,
-            chipset="Snapdragon",
-        )
-    ]
+def _find_metric(res, cat_id, metric_id):
+    for m in res["categories"][cat_id]["metrics"]:
+        if m["id"] == metric_id:
+            return m
+    raise AssertionError(f"{metric_id} not in {cat_id}")
+
+
+def test_engine_default_shape_and_pass():
+    # ram_delta kept tiny (not 1.0/2.0): with dur=10.0 the duration_hours denominator is
+    # ~0.0056h, so r_leak = sum(delta)/hours blows up past the 15 MB/hr threshold at 1.0+2.0.
+    # 0.01 each keeps r_leak comfortably under threshold so this stays an all-PASS fixture.
+    runs = [_run("tc01", "PASS", 58.0, 55.0, 0.01), _run("tc02", "PASS", 59.0, 56.0, 0.01)]
     res = evaluate_game_benchmarks(runs)
-    gp = res["categories"]["game_performance"]
-    es = res["categories"]["emulator_stability"]
-    sq = res["categories"]["script_quality"]
-    inf = res["categories"]["infrastructure"]
-
-    # I. Game Performance
-    assert "avg_fps" in gp and gp["avg_fps"] >= 55.0
-    assert "combo_drop_fps" in gp and gp["combo_drop_fps"] <= 5.0
-    assert "r_leak_mb_hr" in gp and gp["r_leak_mb_hr"] < 15.0
-    assert "a_fail_pct" in gp and gp["a_fail_pct"] == 0.0
-
-    # II. Emulator Stability
-    assert "r_crash_pct" in es and es["r_crash_pct"] < 0.5
-    assert "r_softlock_pct" in es and es["r_softlock_pct"] < 1.0
-    assert "delta_ram_emu_mb_hr" in es and es["delta_ram_emu_mb_hr"] < 50.0
-    assert "e_scaling_pct" in es and es["e_scaling_pct"] >= 85.0
-
-    # III. Airtest Script Quality
-    assert "t_match_ms" in sq and sq["t_match_ms"] < 200.0
-    assert "r_cv_error_pct" in sq and sq["r_cv_error_pct"] == 0.0
-    assert "t_input_latency_ms" in sq and sq["t_input_latency_ms"] < 120.0
-    assert "c_critical_pct" in sq and sq["c_critical_pct"] == 100.0
-
-    # IV. Active Test Farm Hardware
-    assert "unique_devices" in inf
+    assert res["mode"] == "normal"
+    assert set(res["categories"]) == {
+        "game_performance", "emulator_stability", "script_quality", "infrastructure"}
+    gp = _find_metric(res, "game_performance", "avg_fps")
+    assert gp["value"] == 58.5 and gp["passed"] is True and gp["unit"] == "FPS"
+    assert res["categories"]["game_performance"]["status"] == "PASS"
 
 
-def test_evaluate_game_benchmarks_action_triggers():
-    now = _dt.now()
-    runs = [
-        RunEntry(
-            stem="tc01_laggy",
-            when=now,
-            status="FAIL",
-            folder="tc01_laggy_20260721_120000",
-            report_href="href1",
-            device="dev1",
-            suite="Core",
-            duration=100.0,
-            fps_avg=45.0,  # Avg FPS < 50 FPS benchmark limit
-            fps_min=45.0,
-            ram_mb_peak=900.0,
-            ram_mb_delta=25.0,
-            asset_errors=2,
-            chipset="LowEndChip",
-        ),
-        RunEntry(
-            stem="tc01_laggy",
-            when=now,
-            status="PASS",
-            folder="tc01_laggy_20260721_110000",
-            report_href="href2",
-            device="dev1",
-            suite="Core",
-            duration=100.0,
-            fps_avg=45.0,
-            fps_min=45.0,
-            ram_mb_peak=900.0,
-            ram_mb_delta=25.0,
-            asset_errors=1,
-            chipset="LowEndChip",
-        ),
-    ]
-
-    bench_metrics = evaluate_game_benchmarks(runs)
-    triggers = bench_metrics["action_triggers"]
-
-    assert any("OPTIMIZE_GRAPHICS" in t or "HALT_BUILD" in t for t in triggers)
+def test_engine_na_metric_excluded_from_rollup():
+    runs = [_run("tc01", "PASS", 58.0, 55.0, 1.0)]
+    res = evaluate_game_benchmarks(runs)
+    tm = _find_metric(res, "script_quality", "t_match_ms")
+    assert tm["value"] is None and tm["passed"] is None       # N/A, no backing field
+    # script_quality is all-N/A -> category status "N/A", not FAIL
+    assert res["categories"]["script_quality"]["status"] == "N/A"
 
 
-def test_evaluate_game_benchmarks_aggressive_mode():
-    now = _dt.now()
-    runs = [
-        RunEntry(
-            stem="tc01_minor_drop",
-            when=now,
-            status="PASS",
-            folder="tc01_minor_drop_20260721_120000",
-            report_href="href1",
-            device="dev1",
-            suite="Core",
-            duration=10.0,
-            fps_avg=52.0,  # 52 FPS passes normal 50 FPS limit, fails aggressive 55 FPS limit
-            fps_min=50.0,
-            scene_load_sec=2.5,
-            ram_mb_peak=400.0,
-            ram_mb_delta=0.0,
-            asset_errors=0,
-            chipset="Snapdragon8Gen2",
-        )
-    ]
+def test_engine_breach_emits_trigger_and_hard_fail():
+    runs = [_run("tc01", "FAIL", 40.0, 40.0, 1.0)]   # avg_fps 40 < hard 45 -> FAIL
+    res = evaluate_game_benchmarks(runs)
+    avg = _find_metric(res, "game_performance", "avg_fps")
+    assert avg["passed"] is False
+    assert res["categories"]["game_performance"]["status"] == "FAIL"
+    assert any("OPTIMIZE_GRAPHICS" in t for t in res["action_triggers"])
 
-    normal_res = evaluate_game_benchmarks(runs, mode="normal")
-    assert normal_res["categories"]["game_performance"]["status"] == "PASS"
 
-    aggr_res = evaluate_game_benchmarks(runs, mode="aggressive")
-    assert aggr_res["mode"] == "aggressive"
-    assert len(aggr_res["action_triggers"]) > 0
-    assert any("[AGGRESSIVE]" in t for t in aggr_res["action_triggers"])
-    assert any("OPTIMIZE_GRAPHICS" in t for t in aggr_res["action_triggers"])
+def test_engine_mode_switch_and_prefix():
+    # fps_min=56 (not 50): combo_drop_fps = 60 - fps_min must stay <= 5.0 (normal threshold)
+    # so game_performance is all-PASS under normal mode; only avg_fps=52 is meant to trip here
+    # (passes normal(50), fails aggressive(55)).
+    runs = [_run("tc01", "PASS", 52.0, 56.0, 0.0)]
+    assert evaluate_game_benchmarks(runs, mode="normal")["categories"]["game_performance"]["status"] == "PASS"
+    aggr = evaluate_game_benchmarks(runs, mode="aggressive")
+    assert aggr["mode"] == "aggressive"
+    assert any("[AGGRESSIVE]" in t and "OPTIMIZE_GRAPHICS" in t for t in aggr["action_triggers"])
+
+
+def test_engine_arbitrary_config_and_constant():
+    cfg = {
+        "modes": ["ci"],
+        "categories": [{
+            "id": "custom", "label": "Custom", "metrics": [
+                {"id": "fixed", "label": "Fixed Target", "unit": "x", "compute": "constant",
+                 "params": {"value": 7.0}, "direction": "min",
+                 "thresholds": {"ci": 5.0}, "trigger": "CHECK"}
+            ]}]}
+    res = evaluate_game_benchmarks([], config=cfg)
+    assert res["mode"] == "ci"
+    m = _find_metric(res, "custom", "fixed")
+    assert m["value"] == 7.0 and m["passed"] is True
+    assert res["action_triggers"] == []
+
+
+def test_engine_bad_mode_raises():
+    import pytest
+    with pytest.raises(ValueError):
+        evaluate_game_benchmarks([], mode="nope")
 
 
 def test_performance_probe_stop_writes_json(tmp_path: Path):

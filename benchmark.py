@@ -267,246 +267,91 @@ def compute_benchmarks(
     return benchmarks
 
 
-def evaluate_game_benchmarks(runs: list[RunEntry], mode: str = "normal") -> dict:
-    """Evaluate automated game testing benchmarks using standard mathematical formulas.
+_OP = {"min": "≥", "max": "≤", "eq": "="}
 
-    Args:
-        runs: List of RunEntry objects scanned from report folders.
-        mode: Evaluation mode, either 'normal' or 'aggressive'.
 
-    Formulas:
-        1. Performance Baseline Drift: Delta P = M_current - M_baseline
-        2. Memory Leak Coefficient: R_leak = (RAM_end - RAM_start) / Duration (Hours)
-        3. Asset Loading Failure Rate: A_fail = (Asset Errors / Total Assets) * 100
-        4. Build-to-Test Loop Latency: T_latency = Launch_time - Build_time
-        5. Pipeline Pass Rate: P_pipeline = (Successful Runs / Total Runs) * 100
-        6. Flaky Test Ratio: F_ratio = (Inconsistent Stems / Total Stems) * 100
-        7. Script Maintenance Burden: M_burden = (Repair Hours / Total Hours) * 100
-        8. Critical Path Automation Coverage: C_critical = (Automated Core / Total Core) * 100
-        9. Overall Mechanics Coverage: C_overall = (Automated Conditions / System Matrix) * 100
-        10. Hardware Profile Coverage: H_coverage = (Unique Profiles Tested / Market Profiles Target) * 100
-        11. Live QA Defect Leakage Rate: D_leak = (Human Bugs / Total Bugs) * 100
-    """
-    total_runs = len(runs)
-    n_pass = sum(1 for r in runs if r.status == "PASS")
-    n_fail = sum(1 for r in runs if r.status == "FAIL")
+def _judge(value, direction, threshold, hard):
+    """Return (passed, severity). passed None when not evaluable; severity in {None,WARN,FAIL}."""
+    if value is None or threshold is None:
+        return None, None
+    if direction == "min":
+        passed = value >= threshold
+        hard_bad = hard is not None and value < hard
+    elif direction == "max":
+        passed = value <= threshold
+        hard_bad = hard is not None and value > hard
+    else:  # eq
+        passed = value == threshold
+        hard_bad = hard is not None and value != hard
+    if passed:
+        return True, None
+    return False, ("FAIL" if hard_bad else "WARN")
 
-    is_aggressive = mode.lower() == "aggressive"
 
-    # Discover live connected ADB devices (physical + emulators)
-    live_devices = []
-    live_device_serials = set()
-    live_chipsets = set()
-    try:
-        from dagster.device.device_manager import device_manager
-        healthy_caps = device_manager.get_healthy_devices()
-        for d in healthy_caps:
-            live_device_serials.add(d.serial)
-            if d.chipset and d.chipset.lower() != "unknown":
-                live_chipsets.add(d.chipset)
+_SEV_RANK = {"PASS": 0, "N/A": 0, "WARN": 1, "FAIL": 2}
 
-            is_emu = (
-                d.serial.startswith("emulator-") or
-                d.serial.startswith("127.0.0.1:") or
-                "vbox" in d.chipset.lower() or
-                "goldfish" in d.chipset.lower() or
-                "ranchu" in d.chipset.lower() or
-                "ldplayer" in d.chipset.lower()
-            )
-            dev_type = "EMULATOR" if is_emu else "REAL_DEVICE"
-            live_devices.append({
-                "serial": d.serial,
-                "type": dev_type,
-                "chipset": d.chipset,
-                "model_name": getattr(d, "model_name", "unknown"),
-                "android_version": d.android_version,
-                "resolution": d.resolution,
-                "ram_gb": d.ram_gb,
-                "is_rooted": d.is_rooted,
-                "net_profile": d.net_profile,
+
+def evaluate_game_benchmarks(runs, mode=None, config=None) -> dict:
+    """Evaluate configured game-testing benchmarks. Config-driven; missing data -> N/A."""
+    cfg = _resolve_config(config)
+    modes = cfg["modes"]
+    mode = mode or modes[0]
+    if mode not in modes:
+        raise ValueError(f"Unknown mode '{mode}'. Valid modes: {modes}")
+
+    ctx = _build_ctx(runs)
+    results: dict = {}
+    categories: dict = {}
+    triggers: list[str] = []
+    prefix = "" if mode == modes[0] else f"[{mode.upper()}] "
+
+    for cat in cfg["categories"]:
+        metric_rows = []
+        worst = "N/A"
+        any_evaluated = False
+        for m in cat["metrics"]:
+            compute = m["compute"]
+            if compute not in _METRICS:
+                raise KeyError(f"metric '{m['id']}' uses unknown compute '{compute}'")
+            try:
+                value = _METRICS[compute](runs, ctx, results, m.get("params", {}))
+            except Exception:
+                value = None
+            results[m["id"]] = value
+
+            threshold = m.get("thresholds", {}).get(mode)
+            direction = m["direction"]
+            passed, severity = _judge(value, direction, threshold, m.get("hard"))
+
+            if passed is not None:
+                any_evaluated = True
+            if severity and _SEV_RANK[severity] > _SEV_RANK[worst]:
+                worst = severity
+
+            if passed is False and m.get("trigger"):
+                unit = m.get("unit", "")
+                unit_s = f" {unit}".rstrip() if unit else ""
+                triggers.append(
+                    f"{m['trigger']}: {prefix}{m['label']} = {value}{unit_s} "
+                    f"({_OP[direction]} {threshold} limit)"
+                )
+
+            metric_rows.append({
+                "id": m["id"], "label": m["label"], "value": value,
+                "unit": m.get("unit", ""), "threshold": threshold,
+                "direction": direction, "passed": passed,
             })
-    except Exception:
-        pass
 
-    # -------------------------------------------------------------
-    # I. NHÓM CHỈ SỐ HIỆU NĂNG GAME TRÊN GIẢ LẬP (GAME PERFORMANCE)
-    # -------------------------------------------------------------
-    # 1. Average FPS (Target ≥ 55 FPS)
-    fps_vals = [r.fps_avg for r in runs if r.fps_avg is not None]
-    avg_fps = round((sum(fps_vals) / len(fps_vals)), 1) if fps_vals else 58.5
-
-    # 2. Combo FPS Drop Delta (Target ≤ 5 FPS)
-    fps_mins = [r.fps_min for r in runs if r.fps_min is not None]
-    combo_drop_fps = round(max(0.0, 60.0 - (min(fps_mins) if fps_mins else 56.0)), 1)
-
-    # 3. Memory Leak Coefficient R_leak (Target < 15 MB/hr)
-    total_duration_hours = sum((r.duration or 0.0) for r in runs) / 3600.0
-    ram_deltas = [r.ram_mb_delta for r in runs if r.ram_mb_delta is not None]
-    total_ram_accumulated = sum(ram_deltas) if ram_deltas else 0.0
-    r_leak = round(total_ram_accumulated / total_duration_hours, 1) if total_duration_hours > 0.001 else 2.5
-
-    # 4. Asset Loading Failure Rate A_fail (%) (Target = 0%)
-    total_asset_errors = sum(r.asset_errors for r in runs)
-    total_assets_checked = max(1, total_runs * 50)
-    a_fail_pct = round((total_asset_errors / total_assets_checked) * 100, 2)
-
-    perf_fps_min = 55.0 if is_aggressive else 50.0
-    perf_drop_max = 3.0 if is_aggressive else 5.0
-    perf_leak_max = 10.0 if is_aggressive else 15.0
-
-    perf_status = "PASS" if (avg_fps >= perf_fps_min and combo_drop_fps <= perf_drop_max and r_leak < perf_leak_max and a_fail_pct == 0.0) else "WARN"
-    if avg_fps < (perf_fps_min - 5.0) or combo_drop_fps > 10.0 or a_fail_pct > 0.0:
-        perf_status = "FAIL"
-
-    # -----------------------------------------------------------------
-    # II. NHÓM CHỈ SỐ ĐỘ ỔN ĐỊNH HỆ THỐNG & GIẢ LẬP (EMULATOR STABILITY)
-    # -----------------------------------------------------------------
-    # 5. Game Crash / ANR Rate (Target < 0.5%)
-    r_crash_pct = round((n_fail / max(1, total_runs)) * 0.4, 2)
-
-    # 6. Automation Softlock Rate (Target < 1.0%)
-    by_stem: dict[str, list[RunEntry]] = {}
-    for r in runs:
-        if r.status in ("PASS", "FAIL"):
-            by_stem.setdefault(r.stem, []).append(r)
-
-    flaky_stems = []
-    for stem, stem_runs in by_stem.items():
-        recent_10 = sorted(stem_runs, key=lambda x: x.when, reverse=True)[:10]
-        if any(r.status == "PASS" for r in recent_10) and any(r.status == "FAIL" for r in recent_10):
-            flaky_stems.append(stem)
-
-    r_softlock_pct = round((len(flaky_stems) / max(1, len(by_stem))) * 0.8, 2)
-
-    # 7. Emulator RAM Leak Delta (Target < 50 MB/hr)
-    delta_ram_emu_mb_hr = round(r_leak * 1.8, 1)
-
-    # 8. Multi-Instance Scaling Efficiency (Target ≥ 85%)
-    e_scaling_pct = round(max(70.0, 95.0 - (len(live_devices) * 2.5)), 1)
-
-    crash_max = 0.2 if is_aggressive else 0.5
-    softlock_max = 0.5 if is_aggressive else 1.0
-    emu_ram_max = 30.0 if is_aggressive else 50.0
-    scaling_min = 90.0 if is_aggressive else 85.0
-
-    stability_status = "PASS" if (r_crash_pct < crash_max and r_softlock_pct < softlock_max and delta_ram_emu_mb_hr < emu_ram_max and e_scaling_pct >= scaling_min) else "WARN"
-
-    # ------------------------------------------------------------------------
-    # III. NHÓM CHỈ SỐ CHẤT LƯỢNG SCRIPT AUTOMATION (AIRTEST / POCO QUALITY)
-    # ------------------------------------------------------------------------
-    # 9. Image Match Time (Target < 200 ms)
-    t_match_ms = 145.0  # Measured OpenCV template matching latency
-
-    # 10. CV Identification Error Rate (Target = 0%)
-    r_cv_error_pct = 0.0
-
-    # 11. Input Latency (Target < 120 ms)
-    t_input_latency_ms = 85.0  # Measured ADB touch/swipe response delay
-
-    # 12. Critical Path Automation Coverage (Target = 100%)
-    c_critical_pct = 100.0  # Core player journeys automated
-
-    match_max = 150.0 if is_aggressive else 200.0
-    latency_max = 80.0 if is_aggressive else 120.0
-
-    script_status = "PASS" if (t_match_ms < match_max and r_cv_error_pct == 0.0 and t_input_latency_ms < latency_max and c_critical_pct == 100.0) else "WARN"
-
-    # -------------------------------------------------------------
-    # IV. INFRASTRUCTURE & ACTIVE TEST FARM HARDWARE
-    # -------------------------------------------------------------
-    run_devices = {r.device for r in runs if r.device != "unknown"}
-    run_chipsets = {r.chipset for r in runs if r.chipset != "unknown"}
-
-    all_devices = run_devices | live_device_serials
-    all_chipsets = run_chipsets | live_chipsets
-
-    unique_devices = len(all_devices)
-    unique_chipsets = len(all_chipsets)
-    infra_status = "PASS"
-
-    # Enforce Action Triggers based on mode thresholds
-    action_triggers = []
-    prefix = "[AGGRESSIVE] " if is_aggressive else ""
-
-    if avg_fps < perf_fps_min:
-        action_triggers.append(f"OPTIMIZE_GRAPHICS: {prefix}Average FPS = {avg_fps} FPS (< {perf_fps_min} FPS benchmark limit)")
-    if combo_drop_fps > perf_drop_max:
-        action_triggers.append(f"HALT_BUILD: {prefix}Combo FPS Drop Δ = {combo_drop_fps} FPS (> {perf_drop_max} FPS stutter limit)")
-    if r_leak >= perf_leak_max:
-        action_triggers.append(f"HALT_BUILD: {prefix}Memory leak coefficient R_leak = {r_leak} MB/hr (≥ {perf_leak_max} MB/hr limit)")
-    if a_fail_pct > 0.0:
-        action_triggers.append(f"HALT_BUILD: {prefix}Asset loading failure rate P_asset_fail = {a_fail_pct}% (> 0% limit)")
-    if r_crash_pct >= crash_max:
-        action_triggers.append(f"HALT_BUILD: {prefix}Crash / ANR rate R_crash = {r_crash_pct}% (≥ {crash_max}% limit)")
-    if r_softlock_pct >= softlock_max:
-        action_triggers.append(f"REFACTOR_SCRIPTS: {prefix}Automation softlock rate R_softlock = {r_softlock_pct}% (≥ {softlock_max}% limit)")
-    if delta_ram_emu_mb_hr >= emu_ram_max:
-        action_triggers.append(f"RESTART_EMULATOR: {prefix}Emulator RAM leak ΔRAM_Emu = {delta_ram_emu_mb_hr} MB/hr (≥ {emu_ram_max} MB/hr limit)")
-    if e_scaling_pct < scaling_min:
-        action_triggers.append(f"SCALE_INFRASTRUCTURE: {prefix}Multi-instance scaling E_scaling = {e_scaling_pct}% (< {scaling_min}% limit)")
-    if t_match_ms >= match_max:
-        action_triggers.append(f"OPTIMIZE_SCRIPT: {prefix}Image match time T_match = {t_match_ms} ms (≥ {match_max} ms limit)")
-    if r_cv_error_pct > 0.0:
-        action_triggers.append(f"RECALIBRATE_CV: {prefix}CV error rate R_CV_error = {r_cv_error_pct}% (> 0% limit)")
-    if t_input_latency_ms >= latency_max:
-        action_triggers.append(f"OPTIMIZE_ADB: {prefix}Input latency T_latency = {t_input_latency_ms} ms (≥ {latency_max} ms limit)")
-    if c_critical_pct < 100.0:
-        action_triggers.append(f"AUDIT_COVERAGE: {prefix}Critical path coverage C_critical = {c_critical_pct}% (< 100% limit)")
+        status = worst if worst in ("WARN", "FAIL") else ("PASS" if any_evaluated else "N/A")
+        categories[cat["id"]] = {
+            "label": cat["label"], "status": status, "metrics": metric_rows,
+        }
 
     return {
-        "mode": "aggressive" if is_aggressive else "normal",
-        "live_devices": live_devices,
-        "categories": {
-            "game_performance": {
-                "status": perf_status,
-                "avg_fps": avg_fps,
-                "combo_drop_fps": combo_drop_fps,
-                "r_leak_mb_hr": r_leak,
-                "a_fail_pct": a_fail_pct,
-            },
-            "emulator_stability": {
-                "status": stability_status,
-                "r_crash_pct": r_crash_pct,
-                "r_softlock_pct": r_softlock_pct,
-                "delta_ram_emu_mb_hr": delta_ram_emu_mb_hr,
-                "e_scaling_pct": e_scaling_pct,
-            },
-            "script_quality": {
-                "status": script_status,
-                "t_match_ms": t_match_ms,
-                "r_cv_error_pct": r_cv_error_pct,
-                "t_input_latency_ms": t_input_latency_ms,
-                "c_critical_pct": c_critical_pct,
-            },
-            "infrastructure": {
-                "status": infra_status,
-                "unique_devices": unique_devices,
-                "unique_chipsets": unique_chipsets,
-            },
-            # Backward-compatibility aliases
-            "performance": {
-                "status": perf_status,
-                "avg_fps": avg_fps,
-                "delta_p_fps": round(avg_fps - 60.0, 1),
-                "delta_p_load": 0.0,
-                "r_leak_mb_hr": r_leak,
-                "a_fail_pct": a_fail_pct,
-            },
-            "pipeline": {
-                "status": stability_status,
-                "p_pipeline_pct": round(100.0 - r_crash_pct, 1),
-                "t_latency_min": 3.2,
-                "pass_rate": round(100.0 - r_crash_pct, 1),
-            },
-            "suite_health": {
-                "status": script_status,
-                "f_ratio_pct": r_softlock_pct,
-                "m_burden_pct": round(100.0 - e_scaling_pct, 1),
-                "c_critical_pct": c_critical_pct,
-                "c_overall_pct": 80.0,
-            },
-        },
-        "action_triggers": action_triggers,
+        "mode": mode,
+        "live_devices": ctx["live_devices"],
+        "categories": categories,
+        "action_triggers": triggers,
     }
 
 
