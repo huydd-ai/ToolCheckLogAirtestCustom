@@ -1,6 +1,7 @@
 """Unit tests for dagster game testing benchmark rule engine, probe, and metrics."""
 
 import json
+import pytest
 from datetime import datetime as _dt
 from pathlib import Path
 
@@ -186,3 +187,45 @@ def test_print_table_generic_na(capsys):
     assert "Game Performance" in out
     assert "Avg FPS" in out
     assert "N/A" in out   # script_quality metrics render N/A
+
+
+def test_engine_unknown_compute_key_raises():
+    import pytest
+    cfg = {
+        "modes": ["normal"],
+        "categories": [{
+            "id": "c", "label": "C", "metrics": [
+                {"id": "bogus", "label": "Bogus", "unit": "", "compute": "does_not_exist",
+                 "direction": "min", "thresholds": {"normal": 1.0}}
+            ]}]}
+    with pytest.raises(KeyError):
+        evaluate_game_benchmarks([], config=cfg)
+
+
+def test_engine_computor_exception_yields_na_and_continues():
+    from dagster.benchmark import metric
+    # register a computor that always raises
+    @metric("always_raises_probe")
+    def _boom(runs, ctx, results, params):
+        raise RuntimeError("boom")
+
+    cfg = {
+        "modes": ["normal"],
+        "categories": [
+            {"id": "bad", "label": "Bad", "metrics": [
+                {"id": "boom_metric", "label": "Boom", "unit": "", "compute": "always_raises_probe",
+                 "direction": "min", "thresholds": {"normal": 1.0}}
+            ]},
+            {"id": "good", "label": "Good", "metrics": [
+                {"id": "fixed", "label": "Fixed", "unit": "", "compute": "constant",
+                 "params": {"value": 5.0}, "direction": "min", "thresholds": {"normal": 1.0}}
+            ]},
+        ]}
+    res = evaluate_game_benchmarks([], config=cfg)
+    # boom_metric caught -> N/A, its category all-N/A
+    boom = res["categories"]["bad"]["metrics"][0]
+    assert boom["value"] is None and boom["passed"] is None
+    assert res["categories"]["bad"]["status"] == "N/A"
+    # later category still evaluated normally
+    good = res["categories"]["good"]["metrics"][0]
+    assert good["value"] == 5.0 and good["passed"] is True
