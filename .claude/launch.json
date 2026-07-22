@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "report-server",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["report_server.py", "--port", "7070"],
+      "port": 7070
+    },
+    {
+      "name": "report-server-preview",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["report_server.py", "--port", "7171"],
+      "port": 7171
+    }
+  ]
+}

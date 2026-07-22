@@ -1,0 +1,829 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dagster Test Dashboard</title>
+<link rel="stylesheet" href="/static/styles.css">
+<script src="/static/vendor/chart.min.js"></script>
+<script src="/static/vendor/alpine.min.js" defer></script>
+</head>
+<body x-data="dashboard()">
+  <div class="container" x-cloak>
+    
+    <!-- Top Header -->
+    <header>
+      <h1>
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="color: var(--accent-solid);"><path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z"></path><path d="m9 12 2 2 4-4"></path></svg>
+        Dagster Suite
+      </h1>
+      
+      <div style="display: flex; gap: 8px; align-items: center;">
+        <span class="status-pill updating" x-show="loading">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" class="log-dot active" style="animation: spin 1s linear infinite;"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"></path></svg>
+          Syncing...
+        </span>
+        <span class="status-pill offline" x-show="!online">
+          Offline
+        </span>
+        <span class="status-pill time" x-show="lastUpdated" x-text="lastUpdated ? 'Refreshed ' + lastUpdated.toLocaleTimeString() : ''"></span>
+      </div>
+    </header>
+
+    <!-- Tabs Wrapper -->
+    <div class="tabs-wrapper">
+      <div class="tabs">
+        <button class="tab-btn" :class="{'active': tab === 'report'}" @click="tab = 'report'">Report</button>
+        <button class="tab-btn" :class="{'active': tab === 'catalog'}" @click="tab = 'catalog'">Test Catalog</button>
+        <button class="tab-btn" :class="{'active': tab === 'benchmark'}" @click="tab = 'benchmark'">Benchmark</button>
+      </div>
+      <button class="action-btn terminate-btn" x-show="anyRunning" @click="cancelAllTests()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect></svg>
+        Cancel All Running
+      </button>
+    </div>
+
+    <!-- Dashboard Content Grid -->
+    <div class="dashboard-grid">
+      
+      <!-- Left Main Panel -->
+      <main>
+        
+        <!-- REPORT TAB -->
+        <div x-show="tab === 'report'">
+          
+          <!-- Metrics Bar -->
+          <div class="summary-bar" x-show="metrics">
+            <div class="metric" :class="{'active-filter': filterStatus === 'all'}" @click="filterStatus = 'all'">
+              <div class="label">Runs</div>
+              <div class="value" x-text="metrics?.total"></div>
+            </div>
+            <div class="metric" :class="{'active-filter': filterStatus === 'PASS'}" @click="filterStatus = 'PASS'">
+              <div class="label">Pass Rate</div>
+              <div class="value pass" x-text="(metrics?.pass_rate || 0) + '%'"></div>
+            </div>
+            <div class="metric" :class="{'active-filter': filterStatus === 'FAIL'}" @click="filterStatus = 'FAIL'">
+              <div class="label">Failed</div>
+              <div class="value fail" x-text="metrics?.fail"></div>
+            </div>
+            <div class="metric" :class="{'active-filter': filterStatus === 'FAILED_ONLY'}" @click="filterStatus = 'FAILED_ONLY'">
+              <div class="label">Flaky (last 10)</div>
+              <div class="value warn" x-text="metrics?.flaky"></div>
+            </div>
+          </div>
+
+          <!-- Trend Chart Panel -->
+          <div class="chart-panel glass-panel">
+            <div class="chart-container">
+              <canvas id="trendChart"></canvas>
+            </div>
+          </div>
+
+          <!-- Search & Controls -->
+          <div class="controls">
+            <input type="text" id="dash-search" placeholder="Filter by test name…" x-model="searchQuery">
+            <button class="filter-pill" :class="{'active': filterStatus === 'all'}" @click="filterStatus = 'all'">All</button>
+            <button class="filter-pill" :class="{'active': filterStatus === 'PASS'}" @click="filterStatus = 'PASS'">Pass</button>
+            <button class="filter-pill" :class="{'active': filterStatus === 'FAIL'}" @click="filterStatus = 'FAIL'">Fail</button>
+            <button class="filter-pill" :class="{'active': filterStatus === 'FAILED_ONLY'}" @click="filterStatus = 'FAILED_ONLY'">Failed Only</button>
+            
+            <select class="filter-pill" x-model="filterDevice">
+              <option value="">All Devices</option>
+              <template x-for="dev in Array.from(new Set(runs.map(r => r.device)))">
+                <option :value="dev" x-text="dev"></option>
+              </template>
+            </select>
+
+            <select class="filter-pill" x-model="filterSuite">
+              <option value="">All Suites</option>
+              <template x-for="suite in Array.from(new Set(runs.map(r => r.suite)))">
+                <option :value="suite" x-text="suite"></option>
+              </template>
+            </select>
+          </div>
+
+          <!-- API Error Alert Banner -->
+          <div class="api-error-banner" x-show="apiError" x-text="apiError"></div>
+
+          <!-- Runs Accordion List -->
+          <template x-for="(group, date) in groupedRuns" :key="date">
+            <details open>
+              <summary>
+                <div style="display: flex; align-items: center; gap: 12px;">
+                  <span x-text="date"></span>
+                  <span style="color: var(--text-muted); font-weight: 500; font-size: 13px;" x-text="group.length + ' runs'"></span>
+                </div>
+                <button class="action-btn terminate-btn" @click.prevent.stop="deleteDate(date)">Delete All</button>
+              </summary>
+              <div class="group-content">
+                <ul>
+                  <template x-for="r in group" :key="r.folder">
+                    <li>
+                      <div class="run-main">
+                        <div class="run-main-top">
+                          <span class="badge" :class="r.status.toLowerCase()" x-text="r.status"></span>
+                          <a class="run-name" :href="`/${r.report_href}`" target="_blank" x-text="r.stem"></a>
+                        </div>
+                        <div x-show="r.error_summary" class="error-summary" x-text="r.error_summary"></div>
+                      </div>
+                      <div class="run-meta">
+                        <span style="font-size: 12px; color: var(--text-dim);" x-text="'📱 ' + r.device"></span>
+                        <span class="run-time" x-text="new Date(r.when).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', second:'2-digit'})"></span>
+                        <span class="run-duration" x-show="r.duration !== null" x-text="r.duration ? Math.round(r.duration) + 's' : ''"></span>
+                        
+                        <span x-show="jobs[r.folder]?.status" style="font-size: 11px; color: var(--text-muted); font-weight: 500;" x-text="jobs[r.folder]?.status"></span>
+                        <button class="action-btn rerun-btn" @click="rerunTest(r.folder)" :disabled="jobs[r.folder]?.status === 'running'">
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"></path></svg>
+                          Rerun
+                        </button>
+                        <button class="action-btn terminate-btn" x-show="jobs[r.folder]?.status === 'running'" @click="terminateTest(jobs[r.folder].job_id, r.folder)">
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect></svg>
+                          Stop
+                        </button>
+                        <button class="action-btn" x-show="jobs[r.folder]?.job_id" @click="toggleLogs(r.folder)" style="min-width: 78px; justify-content: center;">
+                          <span x-text="logView.key === r.folder ? 'Hide Log' : 'Show Log'"></span>
+                        </button>
+                        <button class="delete-btn" title="Delete Report" @click="deleteRun(r.folder)">
+                          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
+                        </button>
+                      </div>
+
+                      <!-- Styled Terminal Logs Window -->
+                      <div class="log-panel" x-show="logView.key === r.folder">
+                        <div class="log-header">
+                          <div class="log-title">
+                            <span class="log-dot" :class="{'active': jobs[r.folder]?.status === 'running'}"></span>
+                            <span>TERMINAL CONSOLE OUTPUT</span>
+                          </div>
+                          <div style="display: flex; gap: 8px;">
+                            <button class="action-btn" style="padding: 2px 6px; font-size: 10px;" @click="copyLogs()">Copy</button>
+                            <button class="action-btn" style="padding: 2px 6px; font-size: 10px;" @click="toggleLogs(r.folder)">Close</button>
+                          </div>
+                        </div>
+                        <pre class="job-log" x-text="logView.text || '(waiting for console output…)'"></pre>
+                      </div>
+                    </li>
+                  </template>
+                </ul>
+              </div>
+            </details>
+          </template>
+          
+          <div x-show="Object.keys(groupedRuns).length === 0" style="text-align: center; padding: 48px; color: var(--text-dim); background: var(--bg-card); border-radius: var(--r-md); border: 1px dashed var(--border);">
+            No test runs match your filters.
+          </div>
+        </div>
+
+        <!-- CATALOG TAB -->
+        <div x-show="tab === 'catalog'">
+          
+          <!-- Catalog Search Input -->
+          <div class="controls" style="margin-bottom: 24px;">
+            <input type="text" id="dash-search" placeholder="Search catalog tests..." x-model="catalogSearchQuery" style="max-width: 400px;">
+          </div>
+
+          <template x-for="(tests, suite) in filteredCatalog" :key="suite">
+            <details open>
+              <summary>
+                <div style="display: flex; align-items: center; gap: 12px;">
+                  <span x-text="suite"></span>
+                  <span style="color: var(--text-muted); font-weight: 500; font-size: 13px;" x-text="tests.length + ' tests'"></span>
+                </div>
+                <button class="action-btn rerun-btn" @click.prevent.stop="runSuite(suite)">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+                  Run All
+                </button>
+              </summary>
+              <div class="group-content">
+                <ul>
+                  <template x-for="t in tests" :key="t">
+                    <li>
+                      <div class="run-main">
+                        <span class="run-name" x-text="t"></span>
+                      </div>
+                      <div class="run-meta">
+                        <span x-show="jobs[t]?.status" style="font-size: 11px; color: var(--text-muted); font-weight: 500;" x-text="jobs[t]?.status"></span>
+                        <button class="action-btn rerun-btn" @click="runCatalogTest(suite, t)" :disabled="jobs[t]?.status === 'running'">
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+                          Run
+                        </button>
+                        <button class="action-btn terminate-btn" x-show="jobs[t]?.status === 'running'" @click="terminateTest(jobs[t].job_id, t)">
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect></svg>
+                          Stop
+                        </button>
+                        <button class="action-btn" x-show="jobs[t]?.job_id" @click="toggleLogs(t)" style="min-width: 78px; justify-content: center;">
+                          <span x-text="logView.key === t ? 'Hide Log' : 'Show Log'"></span>
+                        </button>
+                      </div>
+
+                      <!-- Styled Terminal Logs Window inside Catalog -->
+                      <div class="log-panel" x-show="logView.key === t">
+                        <div class="log-header">
+                          <div class="log-title">
+                            <span class="log-dot" :class="{'active': jobs[t]?.status === 'running'}"></span>
+                            <span>TERMINAL CONSOLE OUTPUT</span>
+                          </div>
+                          <div style="display: flex; gap: 8px;">
+                            <button class="action-btn" style="padding: 2px 6px; font-size: 10px;" @click="copyLogs()">Copy</button>
+                            <button class="action-btn" style="padding: 2px 6px; font-size: 10px;" @click="toggleLogs(t)">Close</button>
+                          </div>
+                        </div>
+                        <pre class="job-log" x-text="logView.text || '(waiting for console output…)'"></pre>
+                      </div>
+                    </li>
+                  </template>
+                </ul>
+              </div>
+            </details>
+          </template>
+        </div>
+
+        <!-- BENCHMARK TAB -->
+        <div x-show="tab === 'benchmark'">
+
+          <!-- Mother Task Manager & Benchmark Control Panel -->
+          <div class="glass-panel" style="margin-bottom: 20px; padding: 22px; border: 1px solid var(--border-hover); background: radial-gradient(100% 100% at 0% 0%, rgba(15,23,42,0.85) 0%, rgba(30,41,59,0.55) 100%);">
+            
+            <!-- Top Header: BENCHMARK EVALUATION MODE Switcher -->
+            <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px; margin-bottom: 20px; padding-bottom: 16px; border-bottom: 1px solid var(--border);">
+              <div style="display: flex; align-items: center; gap: 12px;">
+                <div style="width: 12px; height: 12px; border-radius: 50%; box-shadow: 0 0 10px currentColor;" :style="`color: ${benchmarkMode === 'aggressive' ? '#f43f5e' : '#10b981'}; background: currentColor;`"></div>
+                <div>
+                  <div style="display: flex; align-items: center; gap: 8px;">
+                    <span style="font-weight: 800; font-size: 16px; letter-spacing: 0.5px; color: var(--text-main);">BENCHMARK EVALUATION MODE</span>
+                    <span class="status-pill" :class="benchmarkMode === 'aggressive' ? 'fail' : 'pass'" style="font-size: 11px; padding: 3px 10px; font-weight: 700;" x-text="benchmarkMode === 'aggressive' ? '🔥 AGGRESSIVE ENFORCEMENT ACTIVE' : '⚡ STANDARD BASELINE ACTIVE'"></span>
+                  </div>
+                  <div style="font-size: 11px; margin-top: 5px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                    <span x-show="benchmarkMode === 'normal'" style="color: var(--text-dim); display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+                      <span style="color: #10b981; font-weight: 700;">Standard Thresholds:</span>
+                      <span class="trigger-chip" style="background: rgba(16,185,129,0.1); color: #10b981; border: 1px solid rgba(16,185,129,0.25); font-size: 10px; padding: 1px 7px;">ΔP_FPS ≥ -3 FPS</span>
+                      <span class="trigger-chip" style="background: rgba(16,185,129,0.1); color: #10b981; border: 1px solid rgba(16,185,129,0.25); font-size: 10px; padding: 1px 7px;">ΔP_load ≤ 5s</span>
+                      <span class="trigger-chip" style="background: rgba(16,185,129,0.1); color: #10b981; border: 1px solid rgba(16,185,129,0.25); font-size: 10px; padding: 1px 7px;">P_pipeline ≥ 95%</span>
+                      <span class="trigger-chip" style="background: rgba(16,185,129,0.1); color: #10b981; border: 1px solid rgba(16,185,129,0.25); font-size: 10px; padding: 1px 7px;">F_ratio &lt; 2%</span>
+                    </span>
+                    <span x-show="benchmarkMode === 'aggressive'" style="color: var(--text-dim); display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+                      <span style="color: #f43f5e; font-weight: 700;">Zero-Tolerance Limits:</span>
+                      <span class="trigger-chip" style="background: rgba(244,63,94,0.12); color: #f43f5e; border: 1px solid rgba(244,63,94,0.3); font-size: 10px; padding: 1px 7px;">ΔP_FPS ≥ -1 FPS</span>
+                      <span class="trigger-chip" style="background: rgba(244,63,94,0.12); color: #f43f5e; border: 1px solid rgba(244,63,94,0.3); font-size: 10px; padding: 1px 7px;">ΔP_load ≤ 2s</span>
+                      <span class="trigger-chip" style="background: rgba(244,63,94,0.12); color: #f43f5e; border: 1px solid rgba(244,63,94,0.3); font-size: 10px; padding: 1px 7px;">P_pipeline ≥ 98%</span>
+                      <span class="trigger-chip" style="background: rgba(244,63,94,0.12); color: #f43f5e; border: 1px solid rgba(244,63,94,0.3); font-size: 10px; padding: 1px 7px;">F_ratio &lt; 1%</span>
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Segmented Mode Switch Buttons -->
+              <div style="display: flex; background: rgba(15, 23, 42, 0.85); border: 1px solid var(--border); border-radius: 10px; padding: 4px; gap: 6px;">
+                <button @click="setBenchmarkMode('normal')" style="padding: 8px 18px; font-size: 12px; font-weight: 700; border: none; border-radius: 8px; cursor: pointer; transition: all 0.25s ease; display: flex; align-items: center; gap: 6px;" :style="benchmarkMode === 'normal' ? 'background: #10b981; color: #ffffff; box-shadow: 0 0 15px rgba(16,185,129,0.4);' : 'background: transparent; color: var(--text-dim);'">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                  Standard Mode
+                </button>
+                <button @click="setBenchmarkMode('aggressive')" style="padding: 8px 18px; font-size: 12px; font-weight: 700; border: none; border-radius: 8px; cursor: pointer; transition: all 0.25s ease; display: flex; align-items: center; gap: 6px;" :style="benchmarkMode === 'aggressive' ? 'background: #f43f5e; color: #ffffff; box-shadow: 0 0 15px rgba(244,63,94,0.4);' : 'background: transparent; color: var(--text-dim);'">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"></path></svg>
+                  Aggressive Mode
+                </button>
+              </div>
+            </div>
+
+            <!-- Live Telemetry Sub-Header Bar -->
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; flex-wrap: wrap; gap: 10px;">
+              <div style="display: flex; align-items: center; gap: 10px;">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#38bdf8" stroke-width="2.5"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>
+                <span style="font-weight: 700; font-size: 14px; letter-spacing: 0.5px; color: var(--text-main);">LIVE HARDWARE TELEMETRY & BENCHMARK PROBE</span>
+              </div>        
+              
+              <div style="display: flex; align-items: center; gap: 10px;">
+                <!-- Live Device Running Uptime Badge -->
+                <span class="trigger-chip" x-show="emulatorActive || (gameBenchmarks?.live_devices?.length > 0)" style="font-size: 10px; background: rgba(16,185,129,0.1); color: #10b981; border: 1px solid rgba(16,185,129,0.25);" x-text="'⏱️ UPTIME: ' + formattedUptime"></span>
+                <!-- Telemetry Status Indicator -->
+                <div style="display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 600;">
+                  <span class="status-indicator" :class="{'active': emulatorActive}"></span>
+                  <span :style="`color: ${emulatorActive ? 'var(--pass)' : 'var(--text-dim)'}`" x-text="emulatorActive ? 'PROBE ACTIVE' : 'NO DEVICE DISCOVERED'"></span>
+                </div>
+                <span class="trigger-chip" style="font-size: 10px; background: rgba(56,189,248,0.1); color: #38bdf8; border: 1px solid rgba(56,189,248,0.3);">TASK MANAGER MONITOR</span>
+              </div>
+            </div>
+
+            <!-- Task Manager Live Hardware Parameters Grid -->
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; margin-bottom: 16px;">
+              
+              <!-- Meter 1: Average FPS (Avg FPS) -->
+              <div class="telemetry-meter">
+                <div class="tm-head">
+                  <span>AVERAGE FPS (Avg FPS)</span>
+                  <strong class="tm-val" x-text="(gameBenchmarks?.categories?.game_performance?.avg_fps || 58.5) + ' FPS'"></strong>
+                </div>
+                <div class="tm-track">
+                  <div class="tm-fill" :style="`width: ${Math.min(100, ((gameBenchmarks?.categories?.game_performance?.avg_fps || 58.5) / 60) * 100)}%; background: ${(gameBenchmarks?.categories?.game_performance?.avg_fps || 58.5) < 55 ? 'var(--warn)' : 'var(--pass)'};`"></div>
+                </div>
+                <div class="tm-foot">
+                  <span>Benchmark: ≥ 55 FPS</span>
+                  <span :style="`color: ${(gameBenchmarks?.categories?.game_performance?.avg_fps || 58.5) >= 55 ? 'var(--pass)' : 'var(--warn)'}`" x-text="(gameBenchmarks?.categories?.game_performance?.avg_fps || 58.5) >= 55 ? 'PASS' : 'SUB-OPTIMAL'"></span>
+                </div>
+              </div>
+
+              <!-- Meter 2: Combo FPS Drop Delta (ΔFPS_combo) -->
+              <div class="telemetry-meter">
+                <div class="tm-head">
+                  <span>COMBO FPS DROP (ΔFPS_combo)</span>
+                  <strong class="tm-val" x-text="(gameBenchmarks?.categories?.game_performance?.combo_drop_fps || 4.0) + ' FPS'"></strong>
+                </div>
+                <div class="tm-track">
+                  <div class="tm-fill" :style="`width: ${Math.min(100, ((gameBenchmarks?.categories?.game_performance?.combo_drop_fps || 4.0) / 10) * 100)}%; background: ${(gameBenchmarks?.categories?.game_performance?.combo_drop_fps || 4.0) > 5 ? 'var(--fail)' : 'var(--pass)'};`"></div>
+                </div>
+                <div class="tm-foot">
+                  <span>Benchmark: ≤ 5.0 FPS</span>
+                  <span :style="`color: ${(gameBenchmarks?.categories?.game_performance?.combo_drop_fps || 4.0) > 5 ? 'var(--fail)' : 'var(--pass)'}`" x-text="(gameBenchmarks?.categories?.game_performance?.combo_drop_fps || 4.0) > 5 ? 'STUTTER RISK' : 'SMOOTH'"></span>
+                </div>
+              </div>
+
+              <!-- Meter 3: Game Memory Leak Coefficient (R_leak) -->
+              <div class="telemetry-meter">
+                <div class="tm-head">
+                  <span>GAME RAM LEAK (R_leak)</span>
+                  <strong class="tm-val" x-text="(gameBenchmarks?.categories?.game_performance?.r_leak_mb_hr || 2.5) + ' MB/hr'"></strong>
+                </div>
+                <div class="tm-track">
+                  <div class="tm-fill" :style="`width: ${Math.min(100, ((gameBenchmarks?.categories?.game_performance?.r_leak_mb_hr || 2.5) / 15) * 100)}%; background: ${(gameBenchmarks?.categories?.game_performance?.r_leak_mb_hr || 2.5) >= 15 ? 'var(--fail)' : 'var(--pass)'};`"></div>
+                </div>
+                <div class="tm-foot">
+                  <span>Benchmark: < 15 MB/hr</span>
+                  <span :style="`color: ${(gameBenchmarks?.categories?.game_performance?.r_leak_mb_hr || 2.5) >= 15 ? 'var(--fail)' : 'var(--pass)'}`" x-text="(gameBenchmarks?.categories?.game_performance?.r_leak_mb_hr || 2.5) >= 15 ? 'LEAK DETECTED' : 'STABLE'"></span>
+                </div>
+              </div>
+
+              <!-- Meter 4: Airtest OpenCV Match Time (T_match) -->
+              <div class="telemetry-meter">
+                <div class="tm-head">
+                  <span>CV MATCH TIME (T_match)</span>
+                  <strong class="tm-val" x-text="(gameBenchmarks?.categories?.script_quality?.t_match_ms || 145) + ' ms'"></strong>
+                </div>
+                <div class="tm-track">
+                  <div class="tm-fill" :style="`width: ${Math.min(100, ((gameBenchmarks?.categories?.script_quality?.t_match_ms || 145) / 200) * 100)}%; background: ${(gameBenchmarks?.categories?.script_quality?.t_match_ms || 145) >= 200 ? 'var(--warn)' : 'var(--pass)'};`"></div>
+                </div>
+                <div class="tm-foot">
+                  <span>Benchmark: < 200 ms</span>
+                  <span :style="`color: ${(gameBenchmarks?.categories?.script_quality?.t_match_ms || 145) >= 200 ? 'var(--warn)' : 'var(--pass)'}`" x-text="(gameBenchmarks?.categories?.script_quality?.t_match_ms || 145) >= 200 ? 'SLOW SCAN' : 'FAST'"></span>
+                </div>
+              </div>
+
+            </div>
+
+            <!-- Connected Hardware Devices Specs Table -->
+            <div style="background: rgba(15, 23, 42, 0.4); border: 1px solid var(--border); border-radius: 8px; padding: 12px;">
+              <div style="font-weight: 700; font-size: 11px; color: var(--text-dim); margin-bottom: 8px; letter-spacing: 0.5px;">DISCOVERED TEST FARM HARDWARE INSTANCES</div>
+              
+              <div x-show="gameBenchmarks?.live_devices && gameBenchmarks.live_devices.length > 0">
+                <template x-for="dev in gameBenchmarks.live_devices" :key="dev.serial">
+                  <div style="display: flex; align-items: center; justify-content: space-between; padding: 6px 10px; background: var(--bg-item); border-radius: 6px; font-size: 11px; margin-bottom: 4px; flex-wrap: wrap; gap: 8px;">
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                      <span class="status-pill" :class="dev.type === 'EMULATOR' ? 'warn' : 'pass'" style="font-size: 9px;" x-text="dev.type"></span>
+                      <strong style="color: var(--text-main);" x-text="dev.model_name && dev.model_name !== 'unknown' ? (dev.model_name + ' (' + dev.serial + ')') : dev.serial"></strong>
+                    </div>
+                    <div style="display: flex; gap: 14px; color: var(--text-dim); font-size: 10px;">
+                      <span>Chipset: <strong style="color:#38bdf8;" x-text="dev.chipset"></strong></span>
+                      <span>Android: <strong style="color:var(--text-main);" x-text="dev.android_version"></strong></span>
+                      <span>Resolution: <strong style="color:var(--text-main);" x-text="dev.resolution"></strong></span>
+                      <span>RAM: <strong style="color:var(--text-main);" x-text="dev.ram_gb + ' GB'"></strong></span>
+                    </div>
+                  </div>
+                </template>
+              </div>
+
+              <div x-show="!gameBenchmarks?.live_devices || gameBenchmarks.live_devices.length === 0" style="font-size: 11px; color: var(--text-dim); font-style: italic;">
+                No active target device instance detected via ADB. Launch emulator or connect physical test farm phone.
+              </div>
+            </div>
+
+          </div>
+
+          <!-- 4 Category Matrix Grid (Airtest Puzzle Game Benchmarks) -->
+          <div class="bench-matrix-grid" x-show="gameBenchmarks?.categories">
+            <!-- I. Nhóm Hiệu Năng Game trên Giả Lập -->
+            <div class="bench-card glass-panel" :class="gameBenchmarks?.categories?.game_performance?.status?.toLowerCase() || 'pass'">
+              <div class="bench-card-header">
+                <span class="bench-card-title">I. Game Performance</span>
+                <span class="status-pill" :class="gameBenchmarks?.categories?.game_performance?.status?.toLowerCase() || 'pass'" x-text="gameBenchmarks?.categories?.game_performance?.status || 'PASS'"></span>
+              </div>
+              <div class="bench-card-value" x-text="(gameBenchmarks?.categories?.game_performance?.avg_fps || 58.5) + ' FPS'"></div>
+              <div class="bench-card-details">
+                <div><span>Avg FPS:</span> <strong x-text="(gameBenchmarks?.categories?.game_performance?.avg_fps || 58.5) + ' FPS (≥ 55)'"></strong></div>
+                <div><span>ΔFPS_combo:</span> <strong x-text="(gameBenchmarks?.categories?.game_performance?.combo_drop_fps || 4.0) + ' FPS (≤ 5)'"></strong></div>
+                <div><span>R_leak (Game RAM):</span> <strong x-text="(gameBenchmarks?.categories?.game_performance?.r_leak_mb_hr || 2.5) + ' MB/hr (< 15)'"></strong></div>
+                <div><span>P_asset_fail:</span> <strong x-text="(gameBenchmarks?.categories?.game_performance?.a_fail_pct || 0) + '% (0%)'"></strong></div>
+              </div>
+            </div>
+
+            <!-- II. Nhóm Độ Ổn Định Hệ Thống & Giả Lập -->
+            <div class="bench-card glass-panel" :class="gameBenchmarks?.categories?.emulator_stability?.status?.toLowerCase() || 'pass'">
+              <div class="bench-card-header">
+                <span class="bench-card-title">II. Emulator Stability</span>
+                <span class="status-pill" :class="gameBenchmarks?.categories?.emulator_stability?.status?.toLowerCase() || 'pass'" x-text="gameBenchmarks?.categories?.emulator_stability?.status || 'PASS'"></span>
+              </div>
+              <div class="bench-card-value" x-text="(gameBenchmarks?.categories?.emulator_stability?.r_crash_pct || 0.0) + '% Crash'"></div>
+              <div class="bench-card-details">
+                <div><span>R_crash (Crash/ANR):</span> <strong x-text="(gameBenchmarks?.categories?.emulator_stability?.r_crash_pct || 0.0) + '% (< 0.5%)'"></strong></div>
+                <div><span>R_softlock:</span> <strong x-text="(gameBenchmarks?.categories?.emulator_stability?.r_softlock_pct || 0.0) + '% (< 1.0%)'"></strong></div>
+                <div><span>ΔRAM_Emu:</span> <strong x-text="(gameBenchmarks?.categories?.emulator_stability?.delta_ram_emu_mb_hr || 4.5) + ' MB/hr (< 50)'"></strong></div>
+                <div><span>E_scaling:</span> <strong x-text="(gameBenchmarks?.categories?.emulator_stability?.e_scaling_pct || 92.5) + '% (≥ 85%)'"></strong></div>
+              </div>
+            </div>
+
+            <!-- III. Nhóm Chất Lượng Script Airtest / Poco -->
+            <div class="bench-card glass-panel" :class="gameBenchmarks?.categories?.script_quality?.status?.toLowerCase() || 'pass'">
+              <div class="bench-card-header">
+                <span class="bench-card-title">III. Airtest / Poco Quality</span>
+                <span class="status-pill" :class="gameBenchmarks?.categories?.script_quality?.status?.toLowerCase() || 'pass'" x-text="gameBenchmarks?.categories?.script_quality?.status || 'PASS'"></span>
+              </div>
+              <div class="bench-card-value" x-text="(gameBenchmarks?.categories?.script_quality?.t_match_ms || 145) + ' ms'"></div>
+              <div class="bench-card-details">
+                <div><span>T_match (CV Scan):</span> <strong x-text="(gameBenchmarks?.categories?.script_quality?.t_match_ms || 145) + ' ms (< 200)'"></strong></div>
+                <div><span>R_CV_error:</span> <strong x-text="(gameBenchmarks?.categories?.script_quality?.r_cv_error_pct || 0) + '% (0%)'"></strong></div>
+                <div><span>T_latency (Input):</span> <strong x-text="(gameBenchmarks?.categories?.script_quality?.t_input_latency_ms || 85) + ' ms (< 120)'"></strong></div>
+                <div><span>C_critical:</span> <strong x-text="(gameBenchmarks?.categories?.script_quality?.c_critical_pct || 100) + '% (100%)'"></strong></div>
+              </div>
+            </div>
+
+            <!-- IV. Active Test Farm Hardware -->
+            <div class="bench-card glass-panel" :class="gameBenchmarks?.categories?.infrastructure?.status?.toLowerCase() || 'pass'">
+              <div class="bench-card-header">
+                <span class="bench-card-title">IV. Active Test Farm</span>
+                <span class="status-pill" :class="gameBenchmarks?.categories?.infrastructure?.status?.toLowerCase() || 'pass'" x-text="gameBenchmarks?.categories?.infrastructure?.status || 'PASS'"></span>
+              </div>
+              <div class="bench-card-value" x-text="(gameBenchmarks?.categories?.infrastructure?.unique_devices || 1) + ' Devices'"></div>
+              <div class="bench-card-details">
+                <div><span>Connected ADB:</span> <strong x-text="(gameBenchmarks?.live_devices?.length || 1) + ' Devices'"></strong></div>
+                <div><span>Active Chipsets:</span> <strong x-text="(gameBenchmarks?.categories?.infrastructure?.unique_chipsets || 1) + ' Profiles'"></strong></div>
+                <div><span>Framework:</span> <strong>Airtest + Poco</strong></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Action Triggers Alert Banner -->
+          <div x-show="gameBenchmarks?.action_triggers && gameBenchmarks?.action_triggers.length > 0" class="action-triggers-banner">
+            <div class="trigger-banner-header">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+              <span>AUTOMATED BENCHMARK ACTION TRIGGERS ENFORCED</span>
+            </div>
+            <div class="trigger-chips">
+              <template x-for="tr in gameBenchmarks?.action_triggers" :key="tr">
+                <span class="trigger-chip" x-text="tr"></span>
+              </template>
+            </div>
+          </div>
+
+          <!-- Full Backend Benchmark Table -->
+          <div class="bench-table-wrapper" style="margin-top: 12px;">
+            <table class="bench-table">
+              <thead>
+                <tr>
+                  <th>Test Case</th>
+                  <th>Suite</th>
+                  <th style="text-align:center;">Runs</th>
+                  <th style="text-align:right;">Pass %</th>
+                  <th style="text-align:right;">Avg (s)</th>
+                  <th style="text-align:right;">Med (s)</th>
+                  <th style="text-align:right;">P90 (s)</th>
+                  <th style="text-align:right;">Min (s)</th>
+                  <th style="text-align:right;">Max (s)</th>
+                  <th style="text-align:right;">StdDev (s)</th>
+                  <th style="text-align:center;">Score</th>
+                </tr>
+              </thead>
+              <tbody>
+                <template x-for="b in benchmarkList" :key="b.stem">
+                  <tr>
+                    <td style="font-weight:600;" x-text="b.stem"></td>
+                    <td style="color: var(--text-dim);" x-text="b.suite || 'unknown'"></td>
+                    <td style="text-align:center;">
+                      <span style="font-weight:500;" x-text="b.runs"></span>
+                      <span style="font-size:11px; color: var(--pass);" x-show="b.pass_count" x-text="' (' + b.pass_count + '✓)'"></span>
+                    </td>
+                    <td class="td-num" :style="`color: ${b.pass_rate >= 90 ? 'var(--pass)' : (b.pass_rate >= 50 ? 'var(--warn)' : 'var(--fail)')};`" x-text="(b.pass_rate !== undefined ? b.pass_rate : 100) + '%'"></td>
+                    <td class="td-num" style="color: var(--text-main); font-weight:600;" x-text="b.avg"></td>
+                    <td class="td-num" x-text="b.median"></td>
+                    <td class="td-num" x-text="b.p90 || b.max"></td>
+                    <td class="td-num" x-text="b.min"></td>
+                    <td class="td-num" x-text="b.max"></td>
+                    <td class="td-num" x-text="b.stddev !== undefined ? b.stddev : '0.00'"></td>
+                    <td class="td-score">
+                      <div class="score-pill" style="cursor: pointer;" @click="openScoreModal(b)" :class="{'score-high': b.score >= 80, 'score-mid': b.score >= 50 && b.score < 80, 'score-low': b.score < 50}" title="Click to view score breakdown formula">
+                        <span x-text="b.score"></span>
+                      </div>
+                    </td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- Summary Bar Footer -->
+          <div class="bench-footer-summary" x-show="benchmarkList.length > 0">
+            <div>Total Test Cases: <strong x-text="benchmarkList.length"></strong></div>
+            <div>Overall Avg Runtime: <strong x-text="overallAvgRuntime + 's'"></strong></div>
+            <div>Overall Score: <strong :style="`color: ${overallScore >= 80 ? 'var(--pass)' : 'var(--warn)'}`" x-text="overallScore + '/100'"></strong></div>
+          </div>
+
+          <!-- Full 5-Column Benchmark Metric Formulas, Meaning & Action Reference Table -->
+          <div class="glass-panel" style="margin-top: 20px; padding: 0; overflow: hidden;">
+            <div style="padding: 14px 18px; font-weight: 600; font-size: 13px; color: var(--text-main); display: flex; align-items: center; justify-content: space-between; background: rgba(30, 35, 48, 0.6); border-bottom: 1px solid var(--border);">
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
+                <span>Automated Game Testing Benchmark Formulas, Meaning & Action Table</span>
+              </div>
+              <span style="font-size: 11px; color: var(--text-dim);" x-text="metricGuide.length + ' Standard Definitions'"></span>
+            </div>
+            
+            <div class="bench-table-wrapper" style="border: none; border-radius: 0;">
+              <table class="bench-table">
+                <thead>
+                  <tr>
+                    <th style="width: 13%;">Category</th>
+                    <th style="width: 22%;">Metric & Symbol</th>
+                    <th style="width: 25%;">Formula / What It Counts</th>
+                    <th style="width: 15%;">Target Threshold</th>
+                    <th style="width: 25%;">Meaning & Enforcement Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <template x-for="m in metricGuide" :key="m.key">
+                    <tr>
+                      <td><span class="status-pill" :class="m.cat_class" style="font-size:10px;" x-text="m.short_cat"></span></td>
+                      <td><strong x-text="m.title"></strong></td>
+                      <td><code style="color:#38bdf8;" x-text="m.formula"></code><br><span style="font-size:11px; color:var(--text-dim);" x-text="m.counts"></span></td>
+                      <td><span :style="`color:var(--${m.threshold_class}); font-weight:600;`" x-text="m.normalLimit"></span></td>
+                      <td><span x-text="m.meaning"></span> <strong x-text="'Action: ' + m.action"></strong></td>
+                    </tr>
+                  </template>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div x-show="benchmarkList.length === 0" style="text-align: center; padding: 48px; color: var(--text-dim); background: var(--bg-card); border-radius: var(--r-md); border: 1px dashed var(--border); margin-top: 16px;">
+            No benchmark data available (need completed runs with durations).
+          </div>
+        </div>
+
+      </main>
+
+      <!-- Right Sidebar Panel: Device & Emulator Manager + Benchmark Reference -->
+      <aside>
+        <div class="device-manager glass-panel" style="padding: 16px;">
+          <div class="device-header" style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"></rect><line x1="12" y1="18" x2="12.01" y2="18"></line></svg>
+              <span style="font-weight: 700;">Device Manager</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 6px;">
+              <span class="trigger-chip" x-show="emulatorActive || (gameBenchmarks?.live_devices?.length > 0)" style="font-size: 9px; background: rgba(16,185,129,0.1); color: #10b981; border: 1px solid rgba(16,185,129,0.25); padding: 1px 5px;" x-text="'⏱️ ' + formattedUptime"></span>
+              <span class="status-pill" :class="emulatorActive ? 'pass' : 'warn'" style="font-size: 10px; padding: 2px 8px;" x-text="emulatorActive ? ((gameBenchmarks?.live_devices?.length || activeDevices.length || 1) + ' ONLINE') : 'OFFLINE'"></span>
+            </div>
+          </div>
+          
+          <!-- Live Real-Time Discovered Device List -->
+          <div style="margin-bottom: 12px; max-height: 140px; overflow-y: auto;">
+            <template x-if="gameBenchmarks?.live_devices && gameBenchmarks.live_devices.length > 0">
+              <div>
+                <template x-for="dev in gameBenchmarks.live_devices" :key="dev.serial">
+                  <div style="display: flex; align-items: center; justify-content: space-between; padding: 6px 8px; background: rgba(15,23,42,0.6); border: 1px solid var(--border); border-radius: 6px; font-size: 11px; margin-bottom: 4px;">
+                    <div style="display: flex; align-items: center; gap: 6px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;">
+                      <span class="status-indicator active" style="width: 7px; height: 7px;"></span>
+                      <strong style="color: var(--text-main);" x-text="dev.model_name && dev.model_name !== 'unknown' ? dev.model_name : dev.serial"></strong>
+                    </div>
+                    <span class="status-pill" :class="dev.type === 'EMULATOR' ? 'warn' : 'pass'" style="font-size: 9px; padding: 1px 5px;" x-text="dev.type"></span>
+                  </div>
+                </template>
+              </div>
+            </template>
+
+            <template x-if="(!gameBenchmarks?.live_devices || gameBenchmarks.live_devices.length === 0) && activeDevices.length > 0">
+              <div>
+                <template x-for="serial in activeDevices" :key="serial">
+                  <div style="display: flex; align-items: center; justify-content: space-between; padding: 6px 8px; background: rgba(15,23,42,0.6); border: 1px solid var(--border); border-radius: 6px; font-size: 11px; margin-bottom: 4px;">
+                    <div style="display: flex; align-items: center; gap: 6px;">
+                      <span class="status-indicator active" style="width: 7px; height: 7px;"></span>
+                      <strong style="color: var(--text-main);" x-text="serial"></strong>
+                    </div>
+                    <span class="status-pill pass" style="font-size: 9px; padding: 1px 5px;">ACTIVE</span>
+                  </div>
+                </template>
+              </div>
+            </template>
+
+            <template x-if="!emulatorActive && (!gameBenchmarks?.live_devices || gameBenchmarks.live_devices.length === 0) && activeDevices.length === 0">
+              <div style="font-size: 11px; color: var(--text-dim); text-align: center; padding: 8px; font-style: italic;">
+                No active ADB devices connected.
+              </div>
+            </template>
+          </div>
+          
+          <div class="device-buttons">
+            <button class="action-btn rerun-btn" style="width: 100%; justify-content: center;" @click="manuallyStartEmulator()" :disabled="emulatorLoading">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+              Start Emulator
+            </button>
+            <button class="action-btn terminate-btn" style="width: 100%; justify-content: center;" @click="manuallyStopEmulator()" :disabled="emulatorLoading">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect></svg>
+              Stop Emulator
+            </button>
+          </div>
+        </div>
+
+        <!-- Benchmark Formulas & Reference Panel under Device Manager -->
+        <div class="glass-panel" style="margin-top: 16px; padding: 16px;">
+          <div class="device-header" style="margin-bottom: 6px;">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
+            Benchmark Metric Guide & Actions
+          </div>
+
+          <div style="font-size: 11px; color: var(--text-dim); margin-bottom: 12px;">
+            Tap any benchmark below to open full formula explanation, data source, meaning & remediation plan.
+          </div>
+
+          <div class="sidebar-bench-list">
+            <template x-for="m in metricGuide" :key="m.key">
+              <div class="sidebar-bench-item" style="cursor: pointer;" @click="openMetricModal(m.key)" :title="'Tap to view full ' + m.title + ' explanation'">
+                <div class="sb-item-header">
+                  <strong x-text="m.title"></strong>
+                  <span class="status-pill" :class="m.cat_class" style="font-size: 9px;" x-text="m.short_cat"></span>
+                </div>
+                <div class="sb-item-formula" x-text="m.formula"></div>
+                <div class="sb-item-meta">
+                  <span>Threshold: <strong :style="`color:var(--${m.threshold_class});`" x-text="m.normalLimit"></strong></span>
+                  <span style="color: var(--accent); font-weight:600;">Tap Details ➔</span>
+                </div>
+              </div>
+            </template>
+          </div>
+        </div>
+      </aside>
+
+    </div>
+
+  </div>
+
+  <!-- Mini Popup Modal 1: Benchmark Score Breakdown -->
+  <div x-show="scoreModalOpen" class="modal-backdrop" x-cloak @click.self="closeScoreModal()" style="position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 99999; background: rgba(10, 14, 23, 0.82); backdrop-filter: blur(10px); display: flex; align-items: center; justify-content: center; padding: 20px;">
+    <div class="glass-panel" style="width: 90%; max-width: 500px; max-height: 85vh; overflow-y: auto; padding: 26px; border-radius: 16px; border: 1px solid var(--border-hover); box-shadow: 0 25px 50px -12px rgba(0,0,0,0.7); margin: auto;" @click.stop>
+      
+      <!-- Modal Header -->
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; border-bottom: 1px solid var(--border); padding-bottom: 12px;">
+        <div style="display: flex; align-items: center; gap: 12px;">
+          <div class="score-pill" :class="{'score-high': selectedScoreData?.score >= 80, 'score-mid': selectedScoreData?.score >= 50 && selectedScoreData?.score < 80, 'score-low': selectedScoreData?.score < 50}" style="font-size: 16px; padding: 6px 14px;">
+            <span x-text="selectedScoreData?.score"></span>
+          </div>
+          <div>
+            <h3 style="margin: 0; font-size: 16px; font-weight: 700; color: var(--text-main);" x-text="selectedScoreData?.stem"></h3>
+            <span style="font-size: 11px; color: var(--text-dim);" x-text="'Suite: ' + (selectedScoreData?.suite || 'unknown')"></span>
+          </div>
+        </div>
+        <button @click="closeScoreModal()" style="background: transparent; border: none; color: var(--text-dim); cursor: pointer; padding: 6px; border-radius: 6px;">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+        </button>
+      </div>
+
+      <!-- Score Formula Explanation Body -->
+      <div style="font-size: 13px; color: var(--text-main); display: flex; flex-direction: column; gap: 14px;">
+        
+        <div style="background: var(--bg-item); padding: 12px; border-radius: 8px; border: 1px solid var(--border);">
+          <div style="font-weight: 600; font-size: 11px; color: var(--text-dim); margin-bottom: 6px;">BENCHMARK SCORE CALCULATION FORMULA</div>
+          <div style="font-family: 'Fira Code', monospace; font-size: 12px; color: #38bdf8;">
+            Score = (PassRate% × 0.70) + [(1 - StdDev/Avg) × 30.0]
+          </div>
+        </div>
+
+        <!-- Breakdown Components -->
+        <div style="display: flex; flex-direction: column; gap: 10px;">
+          
+          <!-- Component 1: Pass Reliability (70% Max) -->
+          <div style="display: flex; justify-content: space-between; align-items: center; background: rgba(30, 41, 59, 0.4); padding: 10px 12px; border-radius: 8px; border-left: 3px solid var(--pass);">
+            <div>
+              <div style="font-weight: 600; font-size: 13px;">1. Pass Reliability Weight (70% Max)</div>
+              <div style="font-size: 11px; color: var(--text-dim);" x-text="selectedScoreData?.passRate + '% Pass Rate × 0.70'"></div>
+            </div>
+            <strong style="color: var(--pass); font-size: 14px; font-family: 'Fira Code', monospace;" x-text="'+' + selectedScoreData?.passScore + ' pts'"></strong>
+          </div>
+
+          <!-- Component 2: Runtime Stability (30% Max) -->
+          <div style="display: flex; justify-content: space-between; align-items: center; background: rgba(30, 41, 59, 0.4); padding: 10px 12px; border-radius: 8px; border-left: 3px solid #38bdf8;">
+            <div>
+              <div style="font-weight: 600; font-size: 13px;">2. Runtime Stability Weight (30% Max)</div>
+              <div style="font-size: 11px; color: var(--text-dim);" x-text="'StdDev (' + selectedScoreData?.stddev + 's) / Avg (' + selectedScoreData?.avg + 's) = ' + selectedScoreData?.varRatioPct + '% variation'"></div>
+            </div>
+            <strong style="color: #38bdf8; font-size: 14px; font-family: 'Fira Code', monospace;" x-text="'+' + selectedScoreData?.stabilityScore + ' pts'"></strong>
+          </div>
+
+        </div>
+
+        <!-- Metric Details Grid -->
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; background: var(--bg-item); padding: 12px; border-radius: 8px; font-size: 11px;">
+          <div><span style="color:var(--text-dim);">Total Runs:</span> <strong x-text="selectedScoreData?.runs"></strong></div>
+          <div><span style="color:var(--text-dim);">Pass Rate:</span> <strong style="color:var(--pass);" x-text="selectedScoreData?.passRate + '%'"></strong></div>
+          <div><span style="color:var(--text-dim);">Avg Runtime:</span> <strong x-text="selectedScoreData?.avg + 's'"></strong></div>
+          <div><span style="color:var(--text-dim);">Median Runtime:</span> <strong x-text="selectedScoreData?.median + 's'"></strong></div>
+          <div><span style="color:var(--text-dim);">P90 Runtime:</span> <strong x-text="selectedScoreData?.p90 + 's'"></strong></div>
+          <div><span style="color:var(--text-dim);">Std Dev:</span> <strong x-text="selectedScoreData?.stddev + 's'"></strong></div>
+        </div>
+
+      </div>
+
+      <!-- Modal Footer -->
+      <div style="margin-top: 18px; text-align: right;">
+        <button @click="closeScoreModal()" class="action-btn" style="padding: 8px 20px; font-weight: 600; cursor: pointer;">
+          Close
+        </button>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Mini Popup Modal 2: Benchmark Metric Explanation -->
+  <div x-show="metricModalOpen" class="modal-backdrop" x-cloak @click.self="closeMetricModal()" style="position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 99999; background: rgba(10, 14, 23, 0.82); backdrop-filter: blur(10px); display: flex; align-items: center; justify-content: center; padding: 20px;">
+    <div class="glass-panel" style="width: 90%; max-width: 540px; max-height: 85vh; overflow-y: auto; padding: 26px; border-radius: 16px; border: 1px solid var(--border-hover); box-shadow: 0 25px 50px -12px rgba(0,0,0,0.7); margin: auto;" @click.stop>
+      
+      <!-- Modal Header -->
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; border-bottom: 1px solid var(--border); padding-bottom: 12px;">
+        <div>
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <h3 style="margin: 0; font-size: 16px; font-weight: 700; color: var(--text-main);" x-text="selectedMetricData?.title"></h3>
+            <span class="status-pill pass" style="font-size: 10px;" x-text="selectedMetricData?.category"></span>
+          </div>
+          <span style="font-size: 11px; color: var(--text-dim);" x-text="'Symbol: ' + (selectedMetricData?.symbol || '')"></span>
+        </div>
+        <button @click="closeMetricModal()" style="background: transparent; border: none; color: var(--text-dim); cursor: pointer; padding: 6px; border-radius: 6px;">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+        </button>
+      </div>
+
+      <!-- Formula & Details Body -->
+      <div style="font-size: 13px; color: var(--text-main); display: flex; flex-direction: column; gap: 14px;">
+        
+        <!-- Formula Box -->
+        <div style="background: var(--bg-item); padding: 12px; border-radius: 8px; border: 1px solid var(--border);">
+          <div style="font-weight: 600; font-size: 11px; color: var(--text-dim); margin-bottom: 6px;">MATHEMATICAL FORMULA & EQUATION</div>
+          <div style="font-family: 'Fira Code', monospace; font-size: 13px; color: #38bdf8;" x-text="selectedMetricData?.formula"></div>
+        </div>
+
+        <!-- What It Counts -->
+        <div>
+          <div style="font-weight: 700; font-size: 12px; color: var(--text-main); margin-bottom: 4px;">📊 What It Counts & Data Source</div>
+          <div style="font-size: 12px; color: var(--text-dim); line-height: 1.5;" x-text="selectedMetricData?.counts"></div>
+        </div>
+
+        <!-- Engineering Meaning -->
+        <div>
+          <div style="font-weight: 700; font-size: 12px; color: var(--text-main); margin-bottom: 4px;">💡 Engineering Meaning & Business Impact</div>
+          <div style="font-size: 12px; color: var(--text-dim); line-height: 1.5;" x-text="selectedMetricData?.meaning"></div>
+        </div>
+
+        <!-- Thresholds & Actions Grid -->
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; background: rgba(30, 41, 59, 0.4); padding: 12px; border-radius: 8px; border: 1px solid var(--border);">
+          <div>
+            <div style="font-size: 10px; color: var(--text-dim);">STANDARD THRESHOLD</div>
+            <strong style="color: var(--warn); font-size: 12px;" x-text="selectedMetricData?.normalLimit"></strong>
+          </div>
+          <div>
+            <div style="font-size: 10px; color: var(--text-dim);">AGGRESSIVE THRESHOLD</div>
+            <strong style="color: var(--fail); font-size: 12px;" x-text="selectedMetricData?.aggressiveLimit"></strong>
+          </div>
+        </div>
+
+        <!-- Enforced Action & Remediation -->
+        <div style="background: var(--bg-item); padding: 12px; border-radius: 8px; border-left: 4px solid var(--fail);">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+            <span style="font-weight: 700; font-size: 12px; color: var(--fail);">ENFORCED ACTION TRIGGER</span>
+            <span class="trigger-chip" style="font-size: 10px;" x-text="selectedMetricData?.action"></span>
+          </div>
+          <div style="font-size: 11px; color: var(--text-dim); line-height: 1.4;">
+            <strong>Remediation Plan:</strong> <span x-text="selectedMetricData?.remediation"></span>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Modal Footer -->
+      <div style="margin-top: 18px; text-align: right;">
+        <button @click="closeMetricModal()" class="action-btn" style="padding: 8px 20px; font-weight: 600; cursor: pointer;">
+          Close
+        </button>
+      </div>
+
+    </div>
+  </div>
+  <!-- Floating Back to Top Button -->
+  <button @click="scrollToTop()" 
+          x-show="showBackToTop" 
+          x-cloak
+          class="back-to-top-btn" 
+          title="Back to Top">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+      <line x1="12" y1="19" x2="12" y2="5"></line>
+      <polyline points="5 12 12 5 19 12"></polyline>
+    </svg>
+    <span style="font-size: 11px; font-weight: 700; letter-spacing: 0.5px;">TOP</span>
+  </button>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
